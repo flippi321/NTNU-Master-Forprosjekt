@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Specify the path to your .nii file
-nii_file_path = 'data/00039_1_SEG_3_PREP_MNI.nii.gz'
+nii_file_path = '/cluster/projects/vc/data/mic/closed/MRI_HUNT/images/images_3D_preprocessed/HUNT4/00039/00039_1_SEG_3_PREP_MNI.nii.gz'
 
 # Load the NIfTI image
 img = nib.load(nii_file_path)
