@@ -10,21 +10,64 @@ class HuntDataLoader():
     def __init__(self, hunts = ['HUNT3', 'HUNT4'], hunt_path = '/cluster/projects/vc/data/mic/closed/MRI_HUNT/images/images_3D_preprocessed/'):
         self.hunts = hunts
         self.hunt_path = hunt_path
-        self.entry = None
         pass
+
+    def get_pair_path_from_id(self, entry:str):
+        hunt3_path = os.path.join(self.hunt_path, self.hunts[0], entry, f'{entry}_0_T1_PREP_MNI.nii.gz')
+        hunt4_path = os.path.join(self.hunt_path, self.hunts[1], entry, f'{entry}_1_T1_PREP_MNI.nii.gz')
+        return hunt3_path, hunt4_path
+
+    def get_data_info(self, max_entries=None):
+        # Get number of entries in each hunt dataset
+        hunt3_num = len(os.listdir(os.path.join(self.hunt_path, self.hunts[0])))
+        hunt4_num = len(os.listdir(os.path.join(self.hunt_path, self.hunts[1])))
+        print(f"Number of entries in {self.hunts[0]}: {hunt3_num}")
+        print(f"Number of entries in {self.hunts[1]}: {hunt4_num}")
+
+        # For every entry we get the MRI pair data
+        means_h3 = []
+        min_h3_shape = min_h4_shape = [np.inf, np.inf, np.inf]
+        max_h3_shape = max_h4_shape = [0, 0, 0]
+        means_h4 = []
+        for i, entry in enumerate(os.listdir(os.path.join(self.hunt_path, self.hunts[0]))):
+            
+            # We load the data
+            hunt3 = self.load_from_path(self.get_pair_path_from_id(entry)[0])
+            hunt4 = self.load_from_path(self.get_pair_path_from_id(entry)[1])
+
+            # Get average
+            means_h3.append(np.mean(hunt3))
+            means_h4.append(np.mean(hunt4))
+
+            # Get min and max shape
+            min_h3_shape = [min(min_h3_shape[0], hunt3.shape[0]), min(min_h3_shape[1], hunt3.shape[1]), min(min_h3_shape[2], hunt3.shape[2])]
+            max_h3_shape = [max(max_h3_shape[0], hunt3.shape[0]), max(max_h3_shape[1], hunt3.shape[1]), max(max_h3_shape[2], hunt3.shape[2])]
+            min_h4_shape = [min(min_h4_shape[0], hunt4.shape[0]), min(min_h4_shape[1], hunt4.shape[1]), min(min_h4_shape[2], hunt4.shape[2])]
+            max_h4_shape = [max(max_h4_shape[0], hunt4.shape[0]), max(max_h4_shape[1], hunt4.shape[1]), max(max_h4_shape[2], hunt4.shape[2])]
+
+            if(max_entries and i >= max_entries):
+                break
+        
+        # Print Average intensity and shape info
+        hunt3_mean = np.mean(means_h3)
+        hunt4_mean = np.mean(means_h4)
+        print(f"Average intensity across Hunt3: {hunt3_mean}")
+        print(f"Average intensity across Hunt4: {hunt4_mean}")
+
+        print(f"Min shape across Hunt3: {min_h3_shape}, Max shape across Hunt3: {max_h3_shape}")
+        print(f"Min shape across Hunt4: {min_h4_shape}, Max shape across Hunt4: {max_h4_shape}")
+
+        return hunt3_num, hunt4_num, hunt3_mean, hunt4_mean, min_h3_shape, max_h3_shape, min_h4_shape, max_h4_shape
 
     def get_random_pair(self, verbose=False):
         entry = os.listdir(os.path.join(self.hunt_path, self.hunts[0]))[random.randint(0, len(os.listdir(os.path.join(self.hunt_path, self.hunts[0]))) - 1)]
-        self.entry = entry
-
+        
         # Display info regarding the pairs
         if verbose: 
             print("Opening entry:", entry)
         if os.path.exists(os.path.join(self.hunt_path, self.hunts[1], entry)):
             print(f"{entry} exists in both HUNT3 and HUNT4")
-
-            hunt3_path = os.path.join(self.hunt_path, self.hunts[0], entry, entry+'_0_T1_PREP_MNI.nii.gz')
-            hunt4_path = os.path.join(self.hunt_path, self.hunts[1], entry, entry+'_1_T1_PREP_MNI.nii.gz')
+            hunt3_path, hunt4_path = self.get_pair_path_from_id(entry)
         else:
             print(f"{entry} does not exist in HUNT4")
             exit()
@@ -53,15 +96,6 @@ class HuntDataLoader():
         img = nib.load(path)
         data = img.get_fdata()
         return data
-    
-    def load_pair_from_paths(self, path1, path2):
-        hunt3_img = nib.load(path1)
-        hunt3_data = hunt3_img.get_fdata()
-
-        hunt4_img = nib.load(path2)
-        hunt4_data = hunt4_img.get_fdata()
-
-        return hunt3_data, hunt4_data        
 
     def get_middle_slice(self, data_path):
         data = self.load_from_path(data_path)
