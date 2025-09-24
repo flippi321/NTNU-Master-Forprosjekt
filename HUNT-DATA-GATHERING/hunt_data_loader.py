@@ -13,7 +13,7 @@ class HuntDataLoader():
         self.entry = None
         pass
 
-    def load_random_pair(self, verbose=False):
+    def get_random_pair(self, verbose=False):
         entry = os.listdir(os.path.join(self.hunt_path, self.hunts[0]))[random.randint(0, len(os.listdir(os.path.join(self.hunt_path, self.hunts[0]))) - 1)]
         self.entry = entry
 
@@ -23,16 +23,13 @@ class HuntDataLoader():
         if os.path.exists(os.path.join(self.hunt_path, self.hunts[1], entry)):
             print(f"{entry} exists in both HUNT3 and HUNT4")
 
-            hunt3_img = nib.load(os.path.join(self.hunt_path, self.hunts[0], entry, entry+'_0_T1_PREP_MNI.nii.gz'))
-            hunt3_data = hunt3_img.get_fdata()
-
-            hunt4_img = nib.load(os.path.join(self.hunt_path, self.hunts[1], entry, entry+'_1_T1_PREP_MNI.nii.gz'))
-            hunt4_data = hunt4_img.get_fdata()
+            hunt3_path = os.path.join(self.hunt_path, self.hunts[0], entry, entry+'_0_T1_PREP_MNI.nii.gz')
+            hunt4_path = os.path.join(self.hunt_path, self.hunts[1], entry, entry+'_1_T1_PREP_MNI.nii.gz')
         else:
             print(f"{entry} does not exist in HUNT4")
             exit()
 
-        return hunt3_data, hunt4_data
+        return hunt3_path, hunt4_path
     
     def split_training_test_paths(self, split=0.8, seed=random.randint(0, 10000)):
         random.seed(seed)
@@ -52,6 +49,11 @@ class HuntDataLoader():
 
         return train_paths, test_paths
     
+    def load_from_path(self, path):
+        img = nib.load(path)
+        data = img.get_fdata()
+        return data
+    
     def load_pair_from_paths(self, path1, path2):
         hunt3_img = nib.load(path1)
         hunt3_data = hunt3_img.get_fdata()
@@ -61,10 +63,12 @@ class HuntDataLoader():
 
         return hunt3_data, hunt4_data        
 
-    def get_middle_slice(self, data):
+    def get_middle_slice(self, data_path):
+        data = self.load_from_path(data_path)
         return data[:, :, data.shape[2] // 2]
 
-    def get_slice(self, data, index):
+    def get_slice(self, data_path, index):
+        data = self.load_from_path(data_path)
         return data[:, :, index]
 
     def display_slices(self, slice1, slice2):
