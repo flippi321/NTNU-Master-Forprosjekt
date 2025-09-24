@@ -12,6 +12,40 @@ class HuntDataLoader():
         self.hunt_path = hunt_path
         pass
 
+    def get_pair_path_from_id(self, entry:str):
+        hunt3_path = os.path.join(self.hunt_path, self.hunts[0], entry, f'{entry}_0_T1_PREP_MNI.nii.gz')
+        hunt4_path = os.path.join(self.hunt_path, self.hunts[1], entry, f'{entry}_1_T1_PREP_MNI.nii.gz')
+        return hunt3_path, hunt4_path
+
+    def get_data_info(self, max_entries=None):
+        # Get number of entries in each hunt dataset
+        hunt3_num = len(os.listdir(os.path.join(self.hunt_path, self.hunts[0])))
+        hunt4_num = len(os.listdir(os.path.join(self.hunt_path, self.hunts[1])))
+        print(f"Number of entries in {self.hunts[0]}: {hunt3_num}")
+        print(f"Number of entries in {self.hunts[1]}: {hunt4_num}")
+
+        # For every entry we get the MRI pair data
+        means_h3 = []
+        means_h4 = []
+        for i, entry in enumerate(os.listdir(os.path.join(self.hunt_path, self.hunts[0]))):
+            
+            # We load the data
+            hunt3 = self.load_from_path(self.get_pair_path_from_id(entry)[0])
+            hunt4 = self.load_from_path(self.get_pair_path_from_id(entry)[1])
+
+            # Get average
+            means_h3.append(np.mean(hunt3))
+            means_h4.append(np.mean(hunt4))
+
+            if(max_entries and i >= max_entries):
+                break
+        
+        hunt3_mean = np.mean(means_h3)
+        hunt4_mean = np.mean(means_h4)
+        print(f"Average intensity across Hunt3: {hunt3_mean}")
+        print(f"Average intensity across Hunt4: {hunt4_mean}")
+        return hunt3_num, hunt4_num, hunt3_mean, hunt4_mean
+
     def get_random_pair(self, verbose=False):
         entry = os.listdir(os.path.join(self.hunt_path, self.hunts[0]))[random.randint(0, len(os.listdir(os.path.join(self.hunt_path, self.hunts[0]))) - 1)]
         
@@ -20,9 +54,7 @@ class HuntDataLoader():
             print("Opening entry:", entry)
         if os.path.exists(os.path.join(self.hunt_path, self.hunts[1], entry)):
             print(f"{entry} exists in both HUNT3 and HUNT4")
-
-            hunt3_path = os.path.join(self.hunt_path, self.hunts[0], entry, entry+'_0_T1_PREP_MNI.nii.gz')
-            hunt4_path = os.path.join(self.hunt_path, self.hunts[1], entry, entry+'_1_T1_PREP_MNI.nii.gz')
+            hunt3_path, hunt4_path = self.get_pair_path_from_id(entry)
         else:
             print(f"{entry} does not exist in HUNT4")
             exit()
