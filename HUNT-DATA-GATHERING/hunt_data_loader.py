@@ -5,7 +5,7 @@ from skimage.metrics import structural_similarity
 import matplotlib.pyplot as plt
 import numpy as np
 
-class HuntLoader():
+class HuntDataLoader():
 
     def __init__(self, hunts = ['HUNT3', 'HUNT4'], hunt_path = '/cluster/projects/vc/data/mic/closed/MRI_HUNT/images/images_3D_preprocessed/'):
         self.hunts = hunts
@@ -34,8 +34,38 @@ class HuntLoader():
 
         return hunt3_data, hunt4_data
     
+    def split_training_test_paths(self, split=0.8, seed=random.randint(0, 10000)):
+        random.seed(seed)
+        all_entries = os.listdir(os.path.join(self.hunt_path, self.hunts[0]))
+        random.shuffle(all_entries)
+        split_index = int(len(all_entries) * split)
+        train_entries = all_entries[:split_index]
+        test_entries = all_entries[split_index:]
+
+        train_paths = [(os.path.join(self.hunt_path, self.hunts[0], entry, entry+'_0_T1_PREP_MNI.nii.gz'),
+                        os.path.join(self.hunt_path, self.hunts[1], entry, entry+'_1_T1_PREP_MNI.nii.gz')) 
+                       for entry in train_entries if os.path.exists(os.path.join(self.hunt_path, self.hunts[1], entry))]
+        
+        test_paths = [(os.path.join(self.hunt_path, self.hunts[0], entry, entry+'_0_T1_PREP_MNI.nii.gz'),
+                       os.path.join(self.hunt_path, self.hunts[1], entry, entry+'_1_T1_PREP_MNI.nii.gz')) 
+                      for entry in test_entries if os.path.exists(os.path.join(self.hunt_path, self.hunts[1], entry))]
+
+        return train_paths, test_paths
+    
+    def load_pair_from_paths(self, path1, path2):
+        hunt3_img = nib.load(path1)
+        hunt3_data = hunt3_img.get_fdata()
+
+        hunt4_img = nib.load(path2)
+        hunt4_data = hunt4_img.get_fdata()
+
+        return hunt3_data, hunt4_data        
+
     def get_middle_slice(self, data):
         return data[:, :, data.shape[2] // 2]
+
+    def get_slice(self, data, index):
+        return data[:, :, index]
 
     def display_slices(self, slice1, slice2):
         # Create figure with 1 row and 2 columns
