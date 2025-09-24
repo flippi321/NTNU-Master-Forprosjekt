@@ -10,13 +10,11 @@ class HuntDataLoader():
     def __init__(self, hunts = ['HUNT3', 'HUNT4'], hunt_path = '/cluster/projects/vc/data/mic/closed/MRI_HUNT/images/images_3D_preprocessed/'):
         self.hunts = hunts
         self.hunt_path = hunt_path
-        self.entry = None
         pass
 
     def get_random_pair(self, verbose=False):
         entry = os.listdir(os.path.join(self.hunt_path, self.hunts[0]))[random.randint(0, len(os.listdir(os.path.join(self.hunt_path, self.hunts[0]))) - 1)]
-        self.entry = entry
-
+        
         # Display info regarding the pairs
         if verbose: 
             print("Opening entry:", entry)
@@ -53,15 +51,6 @@ class HuntDataLoader():
         img = nib.load(path)
         data = img.get_fdata()
         return data
-    
-    def load_pair_from_paths(self, path1, path2):
-        hunt3_img = nib.load(path1)
-        hunt3_data = hunt3_img.get_fdata()
-
-        hunt4_img = nib.load(path2)
-        hunt4_data = hunt4_img.get_fdata()
-
-        return hunt3_data, hunt4_data        
 
     def get_middle_slice(self, data_path):
         data = self.load_from_path(data_path)
