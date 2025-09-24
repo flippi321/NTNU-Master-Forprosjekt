@@ -13,11 +13,14 @@ class VAE(nn.Module):
 
         # Encoder: (B,1,192,224) -> (B,128,24,28)
         self.encoder = nn.Sequential(
-            nn.Conv2d(1, 32, 4, stride=2, padding=1),  # 192x224 -> 96x112
+            nn.Conv2d(1, 32, 4, stride=2, padding=1),   # 192x224 -> 96x112
             nn.ReLU(inplace=True),
-            nn.Conv2d(32, 64, 4, stride=2, padding=1), # 96x112 -> 48x56
+            nn.Conv2d(32, 64, 4, stride=2, padding=1),  # 96x112 -> 48x56
             nn.ReLU(inplace=True),
-            nn.Conv2d(64, 128, 4, stride=2, padding=1),# 48x56 -> 24x28
+            nn.Conv2d(64, 128, 4, stride=2, padding=1), # 48x56 -> 24x28
+            nn.ReLU(inplace=True),
+            # --- Added layer (no downsample): keeps 24x28 ---
+            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
             nn.ReLU(inplace=True),
         )
         self.enc_out_h, self.enc_out_w, self.enc_out_c = 24, 28, 128
@@ -29,6 +32,9 @@ class VAE(nn.Module):
         # Decoder: latent -> (B,128,24,28) -> (B,1,192,224)
         self.fc_dec = nn.Linear(latent_dim, enc_feat_dim)
         self.decoder = nn.Sequential(
+            # --- Added mirror layer (no upsample): keeps 24x28 ---
+            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(inplace=True),
             nn.ConvTranspose2d(128, 64, 4, stride=2, padding=1),  # 24x28 -> 48x56
             nn.ReLU(inplace=True),
             nn.ConvTranspose2d(64, 32, 4, stride=2, padding=1),   # 48x56 -> 96x112
