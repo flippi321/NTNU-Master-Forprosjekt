@@ -26,6 +26,8 @@ class HuntDataLoader():
 
         # For every entry we get the MRI pair data
         means_h3 = []
+        min_h3_shape = min_h4_shape = [np.inf, np.inf, np.inf]
+        max_h3_shape = max_h4_shape = [0, 0, 0]
         means_h4 = []
         for i, entry in enumerate(os.listdir(os.path.join(self.hunt_path, self.hunts[0]))):
             
@@ -37,14 +39,25 @@ class HuntDataLoader():
             means_h3.append(np.mean(hunt3))
             means_h4.append(np.mean(hunt4))
 
+            # Get min and max shape
+            min_h3_shape = [min(min_h3_shape[0], hunt3.shape[0]), min(min_h3_shape[1], hunt3.shape[1]), min(min_h3_shape[2], hunt3.shape[2])]
+            max_h3_shape = [max(max_h3_shape[0], hunt3.shape[0]), max(max_h3_shape[1], hunt3.shape[1]), max(max_h3_shape[2], hunt3.shape[2])]
+            min_h4_shape = [min(min_h4_shape[0], hunt4.shape[0]), min(min_h4_shape[1], hunt4.shape[1]), min(min_h4_shape[2], hunt4.shape[2])]
+            max_h4_shape = [max(max_h4_shape[0], hunt4.shape[0]), max(max_h4_shape[1], hunt4.shape[1]), max(max_h4_shape[2], hunt4.shape[2])]
+
             if(max_entries and i >= max_entries):
                 break
         
+        # Print Average intensity and shape info
         hunt3_mean = np.mean(means_h3)
         hunt4_mean = np.mean(means_h4)
         print(f"Average intensity across Hunt3: {hunt3_mean}")
         print(f"Average intensity across Hunt4: {hunt4_mean}")
-        return hunt3_num, hunt4_num, hunt3_mean, hunt4_mean
+
+        print(f"Min shape across Hunt3: {min_h3_shape}, Max shape across Hunt3: {max_h3_shape}")
+        print(f"Min shape across Hunt4: {min_h4_shape}, Max shape across Hunt4: {max_h4_shape}")
+
+        return hunt3_num, hunt4_num, hunt3_mean, hunt4_mean, min_h3_shape, max_h3_shape, min_h4_shape, max_h4_shape
 
     def get_random_pair(self, verbose=False):
         entry = os.listdir(os.path.join(self.hunt_path, self.hunts[0]))[random.randint(0, len(os.listdir(os.path.join(self.hunt_path, self.hunts[0]))) - 1)]
