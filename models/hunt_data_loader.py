@@ -1,4 +1,5 @@
 import os
+import torch
 import random
 import nibabel as nib
 from skimage.metrics import structural_similarity
@@ -99,6 +100,20 @@ class HuntDataLoader():
     def load_from_path(self, path, crop_size=None):
         img = nib.load(path)
         data = img.get_fdata()
+
+        # If we want to crop the image
+        if crop_size:
+            if len(crop_size) == 2:  # (H, W) only
+                center = np.array(data.shape[:2]) // 2
+                start = center - np.array(crop_size) // 2
+                end = start + np.array(crop_size)
+                data = data[start[0]:end[0], start[1]:end[1], :]
+            elif len(crop_size) == 3:  # (H, W, D)
+                center = np.array(data.shape) // 2
+                start = center - np.array(crop_size) // 2
+                end = start + np.array(crop_size)
+                data = data[start[0]:end[0], start[1]:end[1], start[2]:end[2]]
+
         return data
 
     def get_middle_slice(self, data_path):
@@ -108,21 +123,25 @@ class HuntDataLoader():
     def get_slice(self, data_path, index):
         data = self.load_from_path(data_path)
         return data[:, :, index]
+    
+    def get_all_slices_as_tensor(self, data_path, crop_size=None):
+        data = self.load_from_path(data_path, crop_size)
+        return [torch.tensor(slice, dtype=torch.float32) for slice in data.transpose(2, 0, 1)]
 
-    def display_slices(self, slice1, slice2):
+    def display_slices(self, slice1, slice2, slice1_label='HUNT3 Scan',slice2_label='HUNT4 Scan'):
         # Create figure with 1 row and 2 columns
         fig, axs = plt.subplots(1, 2, figsize=(10, 5))
 
         # Show HUNT3 image
         
         axs[0].imshow(slice1, cmap='gray')
-        axs[0].set_title('HUNT3 Scan')
+        axs[0].set_title(slice1_label)
         axs[0].axis('off')
 
         # Show HUNT4 image
         
         axs[1].imshow(slice2, cmap='gray')
-        axs[1].set_title('HUNT4 Scan')
+        axs[1].set_title(slice2_label)
         axs[1].axis('off')
 
         plt.tight_layout()
