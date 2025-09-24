@@ -12,28 +12,34 @@ class HuntDataLoader():
         self.hunt_path = hunt_path
         pass
 
-    def get_pair_path_from_id(self, entry:str):
-        hunt3_path = os.path.join(self.hunt_path, self.hunts[0], entry, f'{entry}_0_T1_PREP_MNI.nii.gz')
-        hunt4_path = os.path.join(self.hunt_path, self.hunts[1], entry, f'{entry}_1_T1_PREP_MNI.nii.gz')
+    def get_pair_path_from_id(self, candidate:str):
+        """
+        Function which will return the Hunt3 and Hunt4 image paths for a given candidate id
+        """
+        hunt3_path = os.path.join(self.hunt_path, self.hunts[0], candidate, f'{candidate}_0_T1_PREP_MNI.nii.gz')
+        hunt4_path = os.path.join(self.hunt_path, self.hunts[1], candidate, f'{candidate}_1_T1_PREP_MNI.nii.gz')
         return hunt3_path, hunt4_path
 
-    def get_data_info(self, max_entries=None):
+    def get_data_info(self, max_entries:int=None):
+        """
+        Function to print the number of entries, average value for entries and the dimensions of the dataset
+        """
         # Get number of entries in each hunt dataset
         hunt3_num = len(os.listdir(os.path.join(self.hunt_path, self.hunts[0])))
         hunt4_num = len(os.listdir(os.path.join(self.hunt_path, self.hunts[1])))
         print(f"Number of entries in {self.hunts[0]}: {hunt3_num}")
         print(f"Number of entries in {self.hunts[1]}: {hunt4_num}")
 
-        # For every entry we get the MRI pair data
+        # For every candidate we get the MRI pair data
         means_h3 = []
         min_h3_shape = min_h4_shape = [np.inf, np.inf, np.inf]
         max_h3_shape = max_h4_shape = [0, 0, 0]
         means_h4 = []
-        for i, entry in enumerate(os.listdir(os.path.join(self.hunt_path, self.hunts[0]))):
+        for i, candidate in enumerate(os.listdir(os.path.join(self.hunt_path, self.hunts[0]))):
             
             # We load the data
-            hunt3 = self.load_from_path(self.get_pair_path_from_id(entry)[0])
-            hunt4 = self.load_from_path(self.get_pair_path_from_id(entry)[1])
+            hunt3 = self.load_from_path(self.get_pair_path_from_id(candidate)[0])
+            hunt4 = self.load_from_path(self.get_pair_path_from_id(candidate)[1])
 
             # Get average
             means_h3.append(np.mean(hunt3))
@@ -59,17 +65,17 @@ class HuntDataLoader():
 
         return hunt3_num, hunt4_num, hunt3_mean, hunt4_mean, min_h3_shape, max_h3_shape, min_h4_shape, max_h4_shape
 
-    def get_random_pair(self, verbose=False):
-        entry = os.listdir(os.path.join(self.hunt_path, self.hunts[0]))[random.randint(0, len(os.listdir(os.path.join(self.hunt_path, self.hunts[0]))) - 1)]
-        
+    def get_random_pair(self, verbose:bool=False):
+        candidate = os.listdir(os.path.join(self.hunt_path, self.hunts[0]))[random.randint(0, len(os.listdir(os.path.join(self.hunt_path, self.hunts[0]))) - 1)]
+
         # Display info regarding the pairs
-        if verbose: 
-            print("Opening entry:", entry)
-        if os.path.exists(os.path.join(self.hunt_path, self.hunts[1], entry)):
-            print(f"{entry} exists in both HUNT3 and HUNT4")
-            hunt3_path, hunt4_path = self.get_pair_path_from_id(entry)
+        if verbose:
+            print("Viewing candidate:", candidate)
+        if os.path.exists(os.path.join(self.hunt_path, self.hunts[1], candidate)):
+            print(f"{candidate} exists in both HUNT3 and HUNT4")
+            hunt3_path, hunt4_path = self.get_pair_path_from_id(candidate)
         else:
-            print(f"{entry} does not exist in HUNT4")
+            print(f"{candidate} does not exist in HUNT4")
             exit()
 
         return hunt3_path, hunt4_path
@@ -82,13 +88,11 @@ class HuntDataLoader():
         train_entries = all_entries[:split_index]
         test_entries = all_entries[split_index:]
 
-        train_paths = [(os.path.join(self.hunt_path, self.hunts[0], entry, entry+'_0_T1_PREP_MNI.nii.gz'),
-                        os.path.join(self.hunt_path, self.hunts[1], entry, entry+'_1_T1_PREP_MNI.nii.gz')) 
-                       for entry in train_entries if os.path.exists(os.path.join(self.hunt_path, self.hunts[1], entry))]
-        
-        test_paths = [(os.path.join(self.hunt_path, self.hunts[0], entry, entry+'_0_T1_PREP_MNI.nii.gz'),
-                       os.path.join(self.hunt_path, self.hunts[1], entry, entry+'_1_T1_PREP_MNI.nii.gz')) 
-                      for entry in test_entries if os.path.exists(os.path.join(self.hunt_path, self.hunts[1], entry))]
+        train_paths = [self.get_pair_path_from_id(candidate)
+                       for candidate in train_entries if os.path.exists(os.path.join(self.hunt_path, self.hunts[1], candidate))]
+
+        test_paths = [self.get_pair_path_from_id(candidate)
+                      for candidate in test_entries if os.path.exists(os.path.join(self.hunt_path, self.hunts[1], candidate))]
 
         return train_paths, test_paths
     
