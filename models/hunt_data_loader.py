@@ -96,7 +96,7 @@ class HuntDataLoader():
 
         return train_paths, test_paths
     
-    def load_from_path(self, path):
+    def load_from_path(self, path, crop_size=None):
         img = nib.load(path)
         data = img.get_fdata()
         return data
