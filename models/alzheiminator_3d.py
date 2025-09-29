@@ -53,6 +53,8 @@ class ResidualUNet3D(nn.Module):
         self.e3 = Down(base*2, base*4)
         self.e4 = Down(base*4, base*8)
         self.bott = ConvBlock(base*8, base*16)
+        self.bott_sec = ConvBlock(base*16, base*16)
+
         self.u4 = Up(base*16, base*8)
         self.u3 = Up(base*8, base*4)
         self.u2 = Up(base*4, base*2)
@@ -64,7 +66,7 @@ class ResidualUNet3D(nn.Module):
         s2 = self.e2(s1)
         s3 = self.e3(s2)
         s4 = self.e4(s3)
-        b  = self.bott(s4)
+        b  = self.bott_sec(self.bott(s4))
         d4 = self.u4(b, s4)
         d3 = self.u3(d4, s3)
         d2 = self.u2(d3, s2)
