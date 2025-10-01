@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 class HuntDataLoader():
-
     def __init__(self, hunts = ['HUNT3', 'HUNT4'], hunt_path = '/cluster/projects/vc/data/mic/closed/MRI_HUNT/images/images_3D_preprocessed/'):
         self.hunts = hunts
         self.hunt_path = hunt_path
@@ -171,3 +170,32 @@ class HuntDataLoader():
         
         plt.show()
     
+    def to_torch_img(self, x, device):
+        """
+        x: numpy array or torch tensor with shape (192,224) or (1,192,224), values in [0,1]
+        -> returns (1,1,192,224) float32 on device
+        """
+        if isinstance(x, np.ndarray):
+            t = torch.from_numpy(x)
+        else:
+            t = x
+        t = t.float()
+        if t.ndim == 2:
+            t = t.unsqueeze(0)  # (1,H,W)
+        elif t.ndim == 3 and t.shape[0] != 1:
+            # If it's (H,W,1), move channel first
+            if t.shape[-1] == 1:
+                t = t.permute(2,0,1)
+        t = t.clamp(0, 1)
+        t = t.unsqueeze(0)      # (1,1,H,W)
+        return t.to(device)
+
+    def to_numpy_img(self, t):
+        """
+        t: torch tensor (1,1,H,W) or (1,H,W) or (H,W)
+        -> numpy (H,W) in [0,1]
+        """
+        if isinstance(t, torch.Tensor):
+            t = t.detach().cpu()
+        arr = t.squeeze().numpy() if isinstance(t, torch.Tensor) else np.array(t).squeeze()
+        return np.clip(arr, 0.0, 1.0)
