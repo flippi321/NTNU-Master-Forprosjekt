@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from utils.hunt_data_loader import HuntDataLoader
+from utils.loss_functions import tv_loss_3d
 import random
 
 def build_optimizer(model, lr=1e-4, wd=1e-4):
@@ -53,11 +54,6 @@ def fit_2D(
             running_loss += float(loss.item())
             running_bce  += float(bce.item())
             running_kld  += float(kld.item())
-
-        denom = max(1, num)
-        if (epoch % print_every == 0) and (print_every > 0):
-            print(f"[Epoch {epoch}] avg total: {running_loss/denom:.4f} | "
-            f"recon: {running_bce/denom:.4f} | kld: {running_kld/denom:.6f}")
 
         # --- Every Xth pair, save a snapshot of reconstruction vs target ---
         if (epoch % save_every == 0) and num > 0:
@@ -185,30 +181,6 @@ def fit_3D(
 
             saved_snapshots.append({"iter": i, "x": x_np, "xy": y_np, "recon": recon_np})
             print(f"Saved snapshot at iter {i} (mid-axial slice)")
-
-    # ---- quick eval on a safe example (first pair) ----
-    model.eval()
-    eval_idx = 0 if len(training_pairs) > 0 else None
-    if eval_idx is not None:
-        with torch.no_grad():
-            x_path, y_path = training_pairs[eval_idx]
-            xs_list = dataLoader.get_all_slices_as_tensor(x_path, crop_size=crop_size)
-            ys_list = dataLoader.get_all_slices_as_tensor(y_path, crop_size=crop_size)
-            if trim_slices and trim_slices > 0:
-                xs_list = xs_list[trim_slices:-trim_slices]
-                ys_list = ys_list[trim_slices:-trim_slices]
-            D = min(len(xs_list), len(ys_list))
-            xs_list, ys_list = xs_list[:D], ys_list[:D]
-
-            x = to_torch_vol(xs_list, device)
-            y = to_torch_vol(ys_list, device)
-
-            out = model(x)
-            y_hat = out[0] if isinstance(out, (tuple, list)) else out
-
-            # return one easy-to-inspect slice as numpy if you want to visualize after training
-            eval_target_mid = mid_axial_slice_5d(y)
-            eval_recon_mid  = mid_axial_slice_5d(y_hat)
 
     return model, saved_snapshots
 
