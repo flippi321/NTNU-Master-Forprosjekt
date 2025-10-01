@@ -127,21 +127,18 @@ class HuntDataLoader():
         data = self.load_from_path(data_path, crop_size)
         return [torch.tensor(slice, dtype=torch.float32) for slice in data.transpose(2, 0, 1)]
 
-    def display_slices(self, slice1, slice2, slice1_label='HUNT3 Scan',slice2_label='HUNT4 Scan'):
+    def display_slices(self, slices, slice_labels):
+        """
+        function to display multiple slices side by side for comparison
+        """
         # Create figure with 1 row and 2 columns
-        fig, axs = plt.subplots(1, 2, figsize=(10, 5))
+        fig, axs = plt.subplots(1, len(slices), figsize=(10, 5))
 
         # Show HUNT3 image
-        
-        axs[0].imshow(slice1, cmap='gray')
-        axs[0].set_title(slice1_label)
-        axs[0].axis('off')
-
-        # Show HUNT4 image
-        
-        axs[1].imshow(slice2, cmap='gray')
-        axs[1].set_title(slice2_label)
-        axs[1].axis('off')
+        for i, slice in enumerate(slices):
+            axs[i].imshow(slice, cmap='gray')
+            axs[i].set_title(slice_labels[i])
+            axs[i].axis('off')
 
         plt.tight_layout()
         plt.show()
