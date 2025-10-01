@@ -68,10 +68,12 @@ def fit_2D(
                 y_show = dataLoader.to_torch_img(ys[idx_to_show], device)
                 recon_show, _, _ = model(x_show)
 
-                xy_np   = dataLoader.to_numpy_img(y_show)      # target (H,W) in [0,1]
-                recon_np = dataLoader.to_numpy_img(recon_show) # recon  (H,W) in [0,1]
+                # convert to numpy for visualization
+                x_np     = dataLoader.to_numpy_img(x_show)
+                y_np     = dataLoader.to_numpy_img(y_show)      
+                recon_np = dataLoader.to_numpy_img(recon_show) 
 
-            saved_snapshots.append({"pair_idx": epoch, "xy": xy_np, "recon": recon_np})
+            saved_snapshots.append({"iter": epoch, "x": x_np, "y": y_np, "recon": recon_np})
             print(f"Saved snapshot for pair {epoch} at slice idx {idx_to_show}")
     return model, saved_snapshots
 
@@ -175,17 +177,13 @@ def fit_3D(
                 print(f"[Iter {i}] total: {loss.item():.6f} | L1: {base:.6f} | TVΔ: {tvv:.6f}")
 
         # --- snapshot ---
-        if (save_every > 0) and (i % save_every == 0):
+        if (i % save_every == 0):
             with torch.no_grad():
-                x_mid = mid_axial_slice_5d(x)
-                y_mid = mid_axial_slice_5d(y)
-                yhat_mid = mid_axial_slice_5d(y_hat)
-            saved_snapshots.append({
-                "iter": i,
-                "x_mid": x_mid,       # numpy (H,W)
-                "target_mid": y_mid,  # numpy (H,W)
-                "recon_mid": yhat_mid # numpy (H,W)
-            })
+                x_np = mid_axial_slice_5d(x)
+                y_np = mid_axial_slice_5d(y)
+                recon_np = mid_axial_slice_5d(y_hat)
+
+            saved_snapshots.append({"iter": i, "x": x_np, "xy": y_np, "recon": recon_np})
             print(f"Saved snapshot at iter {i} (mid-axial slice)")
 
     # ---- quick eval on a safe example (first pair) ----
@@ -213,16 +211,6 @@ def fit_3D(
             eval_recon_mid  = mid_axial_slice_5d(y_hat)
 
     return model, saved_snapshots
-
-def tv_loss_3d(x):
-    """
-    Total Variation for 5D tensor (B, C, D, H, W).
-    Returns scalar tensor.
-    """
-    dz = torch.abs(x[:, :, 1:, :, :] - x[:, :, :-1, :, :]).mean()
-    dy = torch.abs(x[:, :, :, 1:, :] - x[:, :, :, :-1, :]).mean()
-    dx = torch.abs(x[:, :, :, :, 1:] - x[:, :, :, :, :-1]).mean()
-    return dz + dy + dx
 
 def to_torch_vol(vol_DHW, device):
     """
@@ -254,10 +242,3 @@ def mid_axial_slice_5d(t5):
     sl = t[0, 0, mid]  # (H, W)
     sl = sl.clamp(0, 1).numpy()
     return sl
-
-
-@torch.no_grad()
-def evaluate(model, dl, criterion, device, metric_fns=None):
-    model.eval()
-    # accumulate loss/metrics...
-    return {"val_loss": 0.123, "psnr": 28.5}
