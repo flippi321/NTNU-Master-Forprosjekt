@@ -66,6 +66,9 @@ class HuntDataLoader():
         return hunt3_num, hunt4_num, hunt3_mean, hunt4_mean, min_h3_shape, max_h3_shape, min_h4_shape, max_h4_shape
 
     def get_random_pair(self, verbose:bool=False):
+        """
+        Gets a random Hunt3 and Hunt4 image pair path
+        """
         candidate = os.listdir(os.path.join(self.hunt_path, self.hunts[0]))[random.randint(0, len(os.listdir(os.path.join(self.hunt_path, self.hunts[0]))) - 1)]
 
         # Display info regarding the pairs
@@ -81,6 +84,9 @@ class HuntDataLoader():
         return hunt3_path, hunt4_path
     
     def split_training_test_paths(self, split=0.8, seed=random.randint(0, 10000)):
+        """
+        Function to split the dataset into training and testing paths
+        """
         random.seed(seed)
         all_entries = os.listdir(os.path.join(self.hunt_path, self.hunts[0]))
         random.shuffle(all_entries)
@@ -97,6 +103,10 @@ class HuntDataLoader():
         return train_paths, test_paths
     
     def load_from_path(self, path, crop_size=None):
+        """
+        Function to load a NIfTI image from a given path and optionally crop it to a
+        specified size.
+        """
         img = nib.load(path)
         data = img.get_fdata()
 
