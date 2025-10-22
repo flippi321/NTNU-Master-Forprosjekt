@@ -82,6 +82,14 @@ class HuntDataLoader():
             exit()
 
         return hunt3_path, hunt4_path
+
+    def get_all_pairs(self):
+        """
+        Function to get all the Hunt3 and Hunt4 image pairs paths
+        """
+        all_entries = os.listdir(os.path.join(self.hunt_path, self.hunts[0]))
+        all_pairs = [self.get_pair_path_from_id(candidate) for candidate in all_entries if os.path.exists(os.path.join(self.hunt_path, self.hunts[1], candidate))]
+        return all_pairs
     
     def split_training_test_paths(self, split=0.8, seed=random.randint(0, 10000)):
         """
