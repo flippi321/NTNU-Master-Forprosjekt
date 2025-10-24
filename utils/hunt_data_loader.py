@@ -137,7 +137,7 @@ class HuntDataLoader():
         data = self.load_from_path(data_path, crop_size)
         return [torch.tensor(slice, dtype=torch.float32) for slice in data.transpose(2, 0, 1)]
 
-    def display_slices(self, slices, slice_labels):
+    def display_slices(self, slices, slice_labels, slice_colors=None):
         """
         function to display multiple slices side by side for comparison
         """
@@ -146,7 +146,7 @@ class HuntDataLoader():
 
         # Show HUNT3 image
         for i, slice in enumerate(slices):
-            axs[i].imshow(slice, cmap='gray')
+            axs[i].imshow(slice, cmap='gray' if not slice_colors else slice_colors[i])
             axs[i].set_title(slice_labels[i])
             axs[i].axis('off')
 
@@ -176,7 +176,7 @@ class HuntDataLoader():
             plt.title('HUNT3 slice with HUNT3↔HUNT4 differences highlighted')
         
         plt.show()
-    
+
     def to_torch_img(self, x, device):
         """
         x: numpy array or torch tensor with shape (192,224) or (1,192,224), values in [0,1]
