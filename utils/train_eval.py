@@ -179,7 +179,7 @@ def fit_3D(
                 y_np = mid_axial_slice_5d(y)
                 recon_np = mid_axial_slice_5d(y_hat)
 
-            saved_snapshots.append({"iter": i, "x": x_np, "xy": y_np, "recon": recon_np})
+            saved_snapshots.append({"iter": i, "x": x_np, "y": y_np, "recon": recon_np})
             print(f"Saved snapshot at iter {i} (mid-axial slice)")
 
     return model, saved_snapshots
