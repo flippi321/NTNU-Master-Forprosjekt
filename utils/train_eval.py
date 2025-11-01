@@ -10,6 +10,101 @@ import random
 def build_optimizer(model, lr=1e-4, wd=1e-4):
     return optim.Adam(model.parameters(), lr=lr, weight_decay=wd)
 
+def fit_2d_per_slice(
+        models: list,                     # list of 193 models, one per slice index
+        device: torch.device,
+        dataLoader,                       # HuntDataLoader
+        training_pairs: list[tuple[str, str]],
+        criterion,
+        epochs: int,
+        optimizers: list | None = None,   # list of 193 optimizers, aligned with models
+        saved_snapshots: list | None = None,
+        print_every: int = -1,
+        save_every: int = -1,
+        crop_size=(192, 224),
+        slice_count: int = 193,           # how many axial slices to use (default 193)
+    ):
+    """
+    Trains a *list* of per-slice models. Model i is trained on slice i of each client volume.
+    Assumes each volume has at least `slice_count` slices. If not, uses the min available.
+    Returns (models, optimizers, saved_snapshots).
+    """
+    assert len(models) == slice_count, f"Expected {slice_count} models, got {len(models)}"
+    if optimizers is None:
+        # build_optimizer must exist in your environment (same as your fit_2D)
+        optimizers = [build_optimizer(m) for m in models]
+    else:
+        assert len(optimizers) == slice_count, f"Expected {slice_count} optimizers, got {len(optimizers)}"
+
+    saved_snapshots = saved_snapshots or []
+
+    for epoch in range(epochs):
+        # Pick a random client pair (like your fit_2D)
+        client = random.randint(0, len(training_pairs) - 1)
+        x_vol = dataLoader.get_all_slices_as_tensor(training_pairs[client][0], crop_size=crop_size)  # (S, H, W)
+        y_vol = dataLoader.get_all_slices_as_tensor(training_pairs[client][1], crop_size=crop_size)  # (S, H, W)
+
+        num_slices = min(len(x_vol), len(y_vol), slice_count)
+
+        running_loss = running_bce = running_kld = 0.0
+        count_updates = 0
+
+        # Train each model i on slice i from this client pair
+        for i in range(num_slices):
+            model_i = models[i]
+            opt_i   = optimizers[i]
+            model_i.train()
+
+            x_slice = x_vol[i]
+            y_slice = y_vol[i]
+
+            x = dataLoader.to_torch_img(x_slice, device)  # (1,1,H,W)
+            y = dataLoader.to_torch_img(y_slice, device)  # (1,1,H,W)
+
+            opt_i.zero_grad()
+            recon, mu, logvar = model_i(x)
+            loss, bce, kld = criterion(recon, y, mu, logvar)
+            loss.backward()
+            opt_i.step()
+
+            running_loss += float(loss.item())
+            running_bce  += float(bce.item())
+            running_kld  += float(kld.item())
+            count_updates += 1
+
+        # Optional logging (same style as your fit_2D)
+        if print_every > 0 and (epoch % print_every == 0) and count_updates > 0:
+            avg_loss = running_loss / count_updates
+            avg_bce  = running_bce  / count_updates
+            avg_kld  = running_kld  / count_updates
+            print(f"[Epoch {epoch}] avg_loss={avg_loss:.4f} | bce={avg_bce:.4f} | kld={avg_kld:.4f} | slices={num_slices}")
+
+        # Save a snapshot for a representative slice/model
+        if save_every > 0 and (epoch % save_every == 0) and num_slices > 0:
+            idx_to_show = min(96, num_slices - 1)  # middle-ish slice, safe bound
+            with torch.no_grad():
+                model_show = models[idx_to_show]
+                model_show.eval()
+                x_show = dataLoader.to_torch_img(x_vol[idx_to_show], device)
+                y_show = dataLoader.to_torch_img(y_vol[idx_to_show], device)
+                recon_show, _, _ = model_show(x_show)
+
+                x_np     = dataLoader.to_numpy_img(x_show)
+                y_np     = dataLoader.to_numpy_img(y_show)
+                recon_np = dataLoader.to_numpy_img(recon_show)
+
+            saved_snapshots.append({
+                "iter": epoch,
+                "slice_idx": idx_to_show,
+                "x": x_np,
+                "y": y_np,
+                "recon": recon_np
+            })
+            print(f"Saved snapshot at epoch {epoch} for slice {idx_to_show}")
+
+    return models, saved_snapshots
+
+
 def fit_2D(
         model,    
         device: torch.device,
