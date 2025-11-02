@@ -64,7 +64,9 @@ def fit_2d_per_slice(
             loss.backward()
             opt_i.step()
 
-            loss_history.append({"slice": i, "loss": float(loss.item()), "bce": float(bce.item()), "kld": float(kld.item())})
+            # Logg loss, bce and kld
+            if(idx_to_show == i):
+                loss_history.append({"slice": i, "loss": float(loss.item()), "bce": float(bce.item()), "kld": float(kld.item())})
         
         # --- Every Xth pair, save a snapshot of reconstruction vs target ---
         if save_every > 0 and (epoch % save_every == 0):
@@ -138,7 +140,8 @@ def fit_2D(
             optimizer.step()
 
             # Logg loss, bce and kld
-            loss_history.append({"slice": i, "loss": float(loss.item()), "bce": float(bce.item()), "kld": float(kld.item())})
+            if(idx_to_show == i):
+                loss_history.append({"slice": i, "loss": float(loss.item()), "bce": float(bce.item()), "kld": float(kld.item())})
 
         # --- Every Xth pair, save a snapshot of reconstruction vs target ---
         if (epoch % save_every == 0) and num > 0:
