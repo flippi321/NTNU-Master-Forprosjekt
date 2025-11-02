@@ -123,9 +123,9 @@ def fit_2D(
         
 
         # Iterate over each slice
-        for idx in range(num):
-            x_slice = xs[idx]
-            y_slice = ys[idx]
+        for i in range(num):
+            x_slice = xs[i]
+            y_slice = ys[i]
 
             x = dataLoader.to_torch_img(x_slice, device)   # (1,1,192,224)
             y = dataLoader.to_torch_img(y_slice, device)   # (1,1,192,224)
@@ -138,7 +138,7 @@ def fit_2D(
             optimizer.step()
 
             # Logg loss, bce and kld
-            loss_history.append({"loss": float(loss.item()), "bce": float(bce.item()), "kld": float(kld.item())})
+            loss_history.append({"slice": i, "loss": float(loss.item()), "bce": float(bce.item()), "kld": float(kld.item())})
 
         # --- Every Xth pair, save a snapshot of reconstruction vs target ---
         if (epoch % save_every == 0) and num > 0:
