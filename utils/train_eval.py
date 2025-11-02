@@ -88,7 +88,7 @@ def fit_2d_per_slice(
             })
             print(f"Saved snapshot at epoch {epoch}")
 
-    return models, saved_snapshots
+    return models, loss_history, saved_snapshots
 
 
 def fit_2D(
