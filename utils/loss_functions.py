@@ -8,7 +8,7 @@ import torch.nn as nn
 # model reconstructions and compare them
 # ---------------------------------------------
 
-def vae_loss(recon, target, mu, logvar):
+def binary_2d_loss(recon, target, mu, logvar):
     # Reconstruction: BCE because inputs are in [0,1]
     bce = nn.functional.binary_cross_entropy(recon, target, reduction='mean')
     # KL divergence
