@@ -1,3 +1,4 @@
+import os
 import torch
 import numpy as np
 import torch.nn as nn
@@ -9,6 +10,23 @@ import random
 
 def build_optimizer(model, lr=1e-4, wd=1e-4):
     return optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
+
+def load_model_weights(model, model_path, device, verbose=False):
+    """
+    Loads model weights from the specified path into the given model.
+    """
+    if os.path.isfile(model_path):
+        model.load_state_dict(torch.load(model_path, map_location=device))
+        if verbose: print(f"Loaded model weights from {model_path}")
+    else:
+        if verbose: print(f"No model weights found at {model_path}. Starting with random weights.")
+
+def save_model_weights(model, model_path, verbose=False):
+    """
+    Saves model weights from the given model to the specified path.
+    """
+    torch.save(model.state_dict(), model_path)
+    if verbose: print(f"Saved model weights to {model_path}")
 
 def fit_2d_per_slice(
         models: list,                     
