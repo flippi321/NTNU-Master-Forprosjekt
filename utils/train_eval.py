@@ -20,19 +20,16 @@ def fit_2d_per_slice(
         optimizers: list | None = None,   
         save_every: int = -1,
         crop_size: tuple = (192, 224),
-        slice_count: int = 193,
         idx_to_show: int = 93, # Approximately middle slice        
     ):
     """
     Trains a list of per-slice models. Model i is trained on slice i of each client volume.
     """
-    
-    assert len(models) == slice_count, f"Expected {slice_count} models, got {len(models)}"
-    
+
     if optimizers is None:
         optimizers = [build_optimizer(m) for m in models]
     else:
-        assert len(optimizers) == slice_count, f"Expected {slice_count} optimizers, got {len(optimizers)}"
+        assert len(optimizers) == len(models), f"Expected {len(models)} optimizers, got {len(optimizers)}"
 
     saved_snapshots = []
     loss_history = []
@@ -42,11 +39,13 @@ def fit_2d_per_slice(
         client = random.randint(0, len(training_pairs) - 1)
         x_vol = dataLoader.get_all_slices_as_tensor(training_pairs[client][0], crop_size=crop_size)  # (N, 192, 224) 
         y_vol = dataLoader.get_all_slices_as_tensor(training_pairs[client][1], crop_size=crop_size)  # (N, 192, 224)
-        num_slices = min(len(x_vol), len(y_vol), slice_count)
+        num_slices = min(len(x_vol), len(y_vol)) 
         
+        loss_sum = 0.0
+
         # Train each model i on slice i for all slices
         for i in range(num_slices):
-            model_i = models[i]
+            model_i = models[i] 
             opt_i   = optimizers[i]
             model_i.train()
 
@@ -63,9 +62,10 @@ def fit_2d_per_slice(
             loss.backward()
             opt_i.step()
 
-            # Log loss
-            if(idx_to_show == i):
-                loss_history.append({"slice": i, "loss": float(loss.item())})
+            loss_sum += float(loss.item())
+        
+        # Log mean loss for all slices in this epoch
+        loss_history.append({"epoch": epoch, "mean_loss": loss_sum / num_slices})
         
         # --- Every Xth pair, save a snapshot of reconstruction vs target ---
         if save_every > 0 and (epoch % save_every == 0):
@@ -120,11 +120,11 @@ def fit_2D(
         xs = dataLoader.get_all_slices_as_tensor(training_pairs[client][0], crop_size=crop_size)  # (N, 192, 224)
         ys = dataLoader.get_all_slices_as_tensor(training_pairs[client][1], crop_size=crop_size)  # (N, 192, 224)
 
-        num = min(len(xs), len(ys)) # They should be equal, but just in case
-        
+        num_slices = min(len(xs), len(ys)) # They should be equal, but just in case
+        loss_sum = 0.0
 
         # Iterate over each slice
-        for i in range(num):
+        for i in range(num_slices):
             x_slice = xs[i]
             y_slice = ys[i]
 
@@ -138,12 +138,13 @@ def fit_2D(
             loss.backward()
             optimizer.step()
 
-            # Log loss
-            if(idx_to_show == i):
-                loss_history.append({"slice": i, "loss": float(loss.item())})
+            loss_sum += float(loss.item())
+        
+        # Log mean loss for all slices in this epoch
+        loss_history.append({"epoch": epoch, "mean_loss": loss_sum / num_slices})
 
         # --- Every Xth pair, save a snapshot of reconstruction vs target ---
-        if save_every > 0 and (epoch % save_every == 0) and num > 0: 
+        if save_every > 0 and (epoch % save_every == 0) and num_slices > 0: 
             # pick a safe index to visualize
             with torch.no_grad():
                 x_show = dataLoader.to_torch_img(xs[idx_to_show], device)
