@@ -120,7 +120,9 @@ def fit_2D(
         optimizer=None,
         save_every: int = -1,
         crop_size: tuple = (192, 224),
-        idx_to_show: int = 93
+        idx_to_show: int = 93,
+        model_dir: str = "",
+        model_name: str = ""
         ):
     """
     Trains a model to reconstruct 2D slices from client volumes.
@@ -129,6 +131,11 @@ def fit_2D(
     optimizer = optimizer or build_optimizer(model)
     saved_snapshots = []
     loss_history = []
+    
+    # Load existing weights if available
+    if model_dir and model_name:
+        model_path = os.path.join(model_dir, model_name + ".pt")
+        load_model_weights(model, model_path, device, verbose=True)
 
     for epoch in range(epochs):
         model.train()
@@ -176,6 +183,13 @@ def fit_2D(
 
             saved_snapshots.append({"iter": epoch, "x": x_np, "y": y_np, "recon": recon_np})
             print(f"Saved snapshot for pair {epoch} at slice idx {idx_to_show}")
+
+    # Save final model weights
+    if model_dir and model_name:
+        os.makedirs(model_dir, exist_ok=True)
+        model_path = os.path.join(model_dir, model_name + ".pt")
+        save_model_weights(model, model_path, verbose=True)
+
     return model, loss_history, saved_snapshots
 
 def fit_3D(
