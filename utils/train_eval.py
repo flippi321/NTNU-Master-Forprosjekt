@@ -1,4 +1,3 @@
-from xml.parsers.expat import model
 import torch
 import numpy as np
 import torch.nn as nn
@@ -22,7 +21,7 @@ def fit_2d_per_slice(
         save_every: int = -1,
         crop_size: tuple = (192, 224),
         slice_count: int = 193,
-        idx_to_show: int = 93, # Aproximately middle slice        
+        idx_to_show: int = 93, # Approximately middle slice        
     ):
     """
     Trains a list of per-slice models. Model i is trained on slice i of each client volume.
@@ -144,7 +143,7 @@ def fit_2D(
                 loss_history.append({"slice": i, "loss": float(loss.item())})
 
         # --- Every Xth pair, save a snapshot of reconstruction vs target ---
-        if (epoch % save_every == 0) and num > 0:
+        if save_every > 0 and (epoch % save_every == 0) and num > 0: 
             # pick a safe index to visualize
             with torch.no_grad():
                 x_show = dataLoader.to_torch_img(xs[idx_to_show], device)

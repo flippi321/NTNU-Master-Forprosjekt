@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from pytorch_msssim import ssim, ms_ssim, SSIM, MS_SSIM
+from pytorch_msssim import ssim
 import torch.nn.functional as F
 
 # ---------------------------------------------
