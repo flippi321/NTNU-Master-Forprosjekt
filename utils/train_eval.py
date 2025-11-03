@@ -9,7 +9,7 @@ from utils.loss_functions import tv_loss_3d
 import random
 
 def build_optimizer(model, lr=1e-4, wd=1e-4):
-    return optim.Adam(model.parameters(), lr=lr, weight_decay=wd)
+    return optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
 
 def fit_2d_per_slice(
         models: list,                     
@@ -60,13 +60,13 @@ def fit_2d_per_slice(
             opt_i.zero_grad()
             recon, mu, logvar = model_i(x)
 
-            loss, bce, kld = criterion(recon, y, mu, logvar)
+            loss = criterion(recon, y, mu, logvar)
             loss.backward()
             opt_i.step()
 
-            # Logg loss, bce and kld
+            # Log loss
             if(idx_to_show == i):
-                loss_history.append({"slice": i, "loss": float(loss.item()), "bce": float(bce.item()), "kld": float(kld.item())})
+                loss_history.append({"slice": i, "loss": float(loss.item())})
         
         # --- Every Xth pair, save a snapshot of reconstruction vs target ---
         if save_every > 0 and (epoch % save_every == 0):
@@ -135,13 +135,13 @@ def fit_2D(
             optimizer.zero_grad()
             recon, mu, logvar = model(x)
 
-            loss, bce, kld = criterion(recon, y, mu, logvar)
+            loss = criterion(recon, y, mu, logvar)
             loss.backward()
             optimizer.step()
 
-            # Logg loss, bce and kld
+            # Log loss
             if(idx_to_show == i):
-                loss_history.append({"slice": i, "loss": float(loss.item()), "bce": float(bce.item()), "kld": float(kld.item())})
+                loss_history.append({"slice": i, "loss": float(loss.item())})
 
         # --- Every Xth pair, save a snapshot of reconstruction vs target ---
         if (epoch % save_every == 0) and num > 0:
