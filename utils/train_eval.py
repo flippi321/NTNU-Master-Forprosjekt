@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from utils.hunt_data_loader import HuntDataLoader
-from utils.loss_functions import tv_loss_3d
+from utils.loss_functions import tv_loss_3d, ssim_loss_3d
 import random
 
 def build_optimizer(model, lr=1e-4, wd=1e-4):
@@ -214,3 +214,127 @@ def mid_axial_slice_5d(t5):
     sl = t[0, 0, mid]  # (H, W)
     sl = sl.clamp(0, 1).numpy()
     return sl
+
+# ---------------------------------------------
+# 3D GAN Training Loop
+# ---------------------------------------------
+# G: generator model
+# D: discriminator model
+# ---------------------------------------------
+
+def fit_3D_gan(
+    G,
+    D,
+    device: torch.device,
+    dataLoader: HuntDataLoader,
+    training_pairs: list[tuple[str, str]],
+    epochs=1,
+    lr_G=1e-4,
+    lr_D=1e-4,
+    lambda_recon=1.0,   # weight on L1+SSIM
+    lambda_adv=0.01,    # weight on adversarial loss for G
+    trim_slices=0,
+    crop_size=(192,224),
+    save_every=10,
+    print_every=1,
+):
+    opt_G = optim.Adam(G.parameters(), lr=lr_G, weight_decay=1e-4)
+    opt_D = optim.Adam(D.parameters(), lr=lr_D, weight_decay=1e-4)
+
+    saved_snaps = []
+
+    bce = nn.BCEWithLogitsLoss()  # standard GAN BCE loss
+
+    for it in range(epochs):
+        G.train()
+        D.train()
+
+        # === 1) Load one random subject pair and build (1,1,D,H,W) ===
+        client = random.randint(0, len(training_pairs)-1)
+        x_path, y_path = training_pairs[client]
+
+        xs_list = dataLoader.get_all_slices_as_tensor(x_path, crop_size=crop_size)
+        ys_list = dataLoader.get_all_slices_as_tensor(y_path, crop_size=crop_size)
+
+        if trim_slices and trim_slices > 0:
+            xs_list = xs_list[trim_slices:-trim_slices]
+            ys_list = ys_list[trim_slices:-trim_slices]
+
+        Ddepth = min(len(xs_list), len(ys_list))
+        xs_list = xs_list[:Ddepth]
+        ys_list = ys_list[:Ddepth]
+
+        x_vol = to_torch_vol(xs_list, device)  # (1,1,D,H,W) in [0,1]
+        y_vol = to_torch_vol(ys_list, device)  # (1,1,D,H,W) in [0,1]
+
+        # === 2) Generator forward ===
+        # G should output predicted follow-up with same shape
+        y_fake = G(x_vol)  # (1,1,D,H,W)
+
+        # ------------------------------------------------------------------
+        # Train D
+        # ------------------------------------------------------------------
+        opt_D.zero_grad()
+
+        # D(real) should be 1
+        pred_real = D(y_vol)     # shape (1,1) or (1,) or (1,patches...) depending on D design
+        real_label = torch.ones_like(pred_real, device=device)
+        loss_D_real = bce(pred_real, real_label)
+
+        # D(fake) should be 0 (detach so we don't backprop to G here)
+        pred_fake = D(y_fake.detach())
+        fake_label = torch.zeros_like(pred_fake, device=device)
+        loss_D_fake = bce(pred_fake, fake_label)
+
+        loss_D_total = 0.5 * (loss_D_real + loss_D_fake)
+        loss_D_total.backward()
+        opt_D.step()
+
+        # ------------------------------------------------------------------
+        # Train G
+        # ------------------------------------------------------------------
+        opt_G.zero_grad()
+
+        # 2a) Reconstruction term (L1 + SSIM)
+        l1_term = torch.mean(torch.abs(y_fake - y_vol))
+        ssim_term = ssim_loss_3d(y_fake, y_vol)
+        loss_recon = 0.5*l1_term + 0.5*ssim_term  # same idea as recon_loss()
+
+        # 2b) Adversarial term: we want D(y_fake) to say "real"
+        pred_fake_for_G = D(y_fake)
+        adv_label = torch.ones_like(pred_fake_for_G, device=device)  # trick D
+        loss_adv_G = bce(pred_fake_for_G, adv_label)
+
+        # 2c) Total G loss
+        loss_G_total = lambda_recon*loss_recon + lambda_adv*loss_adv_G
+        loss_G_total.backward()
+        opt_G.step()
+
+        # ------------------------------------------------------------------
+        # Logging / snapshot
+        # ------------------------------------------------------------------
+        if (print_every > 0) and (it % print_every == 0):
+            print(
+                f"[Iter {it}] "
+                f"D_total={loss_D_total.item():.4f} "
+                f"G_total={loss_G_total.item():.4f} "
+                f"Recon={loss_recon.item():.4f} "
+                f"AdvG={loss_adv_G.item():.4f}"
+            )
+
+        if it % save_every == 0:
+            with torch.no_grad():
+                x_np   = mid_axial_slice_5d(x_vol)
+                y_np   = mid_axial_slice_5d(y_vol)
+                yhat_np= mid_axial_slice_5d(y_fake)
+            saved_snaps.append({
+                "iter": it,
+                "x": x_np,
+                "y": y_np,
+                "recon": yhat_np,
+                "loss_D": float(loss_D_total.item()),
+                "loss_G": float(loss_G_total.item()),
+            })
+            print(f"Saved snapshot at iter {it}")
+
+    return G, D, saved_snaps
