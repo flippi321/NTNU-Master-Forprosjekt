@@ -48,10 +48,10 @@ def fit_2d_models_per_slice(
     Trains a list of per-slice models. Model i is trained on slice i of each client volume.
     """
     loss_history = []
-    saved_snapshots = []
+    snapshots = []
 
     for i in tqdm(range(total_slices), desc="Training Slices"):  
-        model_i = model_constructor().to(device)
+        model_i = model_constructor()
         optimizer_i = optimizer_constructor(model_i)
         model_i_name = f"{model_name_prefix}_slice_{i}.pt"
         
@@ -71,11 +71,16 @@ def fit_2d_models_per_slice(
             model_name=model_i_name
         )
 
-        # We now combine and return loss history and saved snapshots for all slices
         loss_history.extend(loss_history_i)
-        saved_snapshots.extend(saved_snapshots_i)
+        snapshots.extend(saved_snapshots_i)
 
-    return loss_history, saved_snapshots
+    # Sort snapshots by iteration, then by slice index
+    snapshots = sorted(
+        snapshots,
+        key=lambda x: (x.get("iter", 0), x.get("slice_idx", -1))
+    )
+
+    return np.mean(loss_history, axis=0), snapshots
 
 
 def fit_2d_model_for_slice(
@@ -126,11 +131,9 @@ def fit_2d_model_for_slice(
         loss = criterion(recon, y, mu, logvar)
         loss.backward()
         optimizer.step()
-
-        loss += float(loss.item())
         
         # Log mean loss for all slices in this epoch
-        loss_history.append({"epoch": epoch, "loss": loss})
+        loss_history.append(float(loss.item()))
 
         # --- Every Xth pair, save a snapshot of reconstruction vs target ---
         if save_every > 0 and (epoch % save_every == 0) and num_slices > 0: 
@@ -212,7 +215,7 @@ def fit_2D(
             loss_sum += float(loss.item())
         
         # Log mean loss for all slices in this epoch
-        loss_history.append({"epoch": epoch, "mean_loss": loss_sum / num_slices})
+        loss_history.append(loss_sum / num_slices)
 
         # --- Every Xth pair, save a snapshot of reconstruction vs target ---
         if save_every > 0 and (epoch % save_every == 0) and num_slices > 0: 
