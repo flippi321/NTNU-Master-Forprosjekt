@@ -105,10 +105,10 @@ def fit_2d_model_for_slice(
     optimizer = optimizer or build_optimizer(model)
     saved_snapshots = []
     loss_history = []
-    
+
     # Load existing weights if available
     if model_dir and model_name:
-        model_path = os.path.join(model_dir, model_name + ".pt")
+        model_path = os.path.join(model_dir, model_name)
         load_model_weights(model, model_path, device)
 
     for epoch in range(epochs):
@@ -153,7 +153,7 @@ def fit_2d_model_for_slice(
     # Save final model weights
     if model_dir and model_name:
         os.makedirs(model_dir, exist_ok=True)
-        model_path = os.path.join(model_dir, model_name + ".pt")
+        model_path = os.path.join(model_dir, model_name)
         save_model_weights(model, model_path)
 
     return model, loss_history, saved_snapshots
