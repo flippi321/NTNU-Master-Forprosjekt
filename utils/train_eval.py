@@ -93,7 +93,7 @@ def fit_2d_model_for_slice(
         criterion,
         epochs: int,  
         save_every: int = -1,
-        crop_size: tuple = (193, 224),
+        crop_size: tuple = (192, 224),
         idx_to_show: int = 93,  # Approx. middle slice
         model_dir: str = "",    # Assume load/save if defined
         model_name: str = ""
