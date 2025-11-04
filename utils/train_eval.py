@@ -136,7 +136,7 @@ def fit_2d_model_for_slice(
         loss_history.append(float(loss.item()))
 
         # --- Every Xth pair, save a snapshot of reconstruction vs target ---
-        if save_every > 0 and (epoch % save_every == 0) and num_slices > 0: 
+        if slice_idx == idx_to_show and save_every > 0 and (epoch % save_every == 0) and num_slices > 0: 
             # pick a safe index to visualize
             with torch.no_grad():
                 x_show = dataLoader.to_torch_img(xs[idx_to_show], device)
