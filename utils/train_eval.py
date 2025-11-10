@@ -12,6 +12,14 @@ from tqdm import tqdm
 def build_optimizer(model, lr=1e-4, wd=1e-4):
     return optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
 
+def cap_logged_loss(loss: torch.Tensor, loss_cap: float = 1e6) -> float:
+    """
+    Cap a tensor loss.
+    Returns a float value suitable for logging.
+    """
+    capped = torch.clamp(loss, max=loss_cap)
+    return float(capped.item())
+
 def load_model_weights(model, model_path, device, verbose=False):
     """
     Loads model weights from the specified path into the given model.
@@ -123,7 +131,7 @@ def fit_batch_on_slices(
                 load_model_weights(m, os.path.join(model_dir, name), device)
 
     loss_history = []
-    snapshots = []
+    snapshots    = []
 
     num_clients = len(training_pairs)
 
@@ -150,7 +158,7 @@ def fit_batch_on_slices(
             loss.backward()
             optimizer.step()
 
-            epoch_losses.append(float(loss.item()))
+            epoch_losses.append(cap_logged_loss(loss))
 
             # snapshot only if this model's slice is the one of interest
             if (save_every > 0) and (epoch % save_every == 0) and (i == idx_to_show):
@@ -237,7 +245,7 @@ def fit_2D(
             loss.backward()
             optimizer.step()
 
-            loss_sum += float(loss.item())
+            loss_sum += cap_logged_loss(loss)
         
         # Log mean loss for all slices in this epoch
         loss_history.append(loss_sum / num_slices)

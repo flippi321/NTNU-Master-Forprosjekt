@@ -11,23 +11,21 @@ import torch.nn.functional as F
 # model reconstructions and compare them
 # ---------------------------------------------
 
-def clip_loss(loss: torch.Tensor, max: float = 1e6) -> torch.Tensor:
-    # Make sure loss does not explode
-    return torch.clamp(loss, max=max)
 def binary_2d_loss(recon: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     # Reconstruction: BCE because inputs are in [0,1]
     bce = nn.functional.binary_cross_entropy(recon, target, reduction='mean')
     # KL divergence
-    return clip_loss(bce)
+    return bce
 
 def ssim_L1_2d_loss(recon: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     # SSIM loss
     ssim_loss = 1 - ssim(recon, target, data_range=1.0, size_average=True)
+    
     # L1 loss
     l1_loss = nn.functional.l1_loss(recon, target, reduction='mean')
     
     # Combine losses with weights
-    return clip_loss(ssim_loss + l1_loss)
+    return ssim_loss + l1_loss
 
 # ---------------------------------------------
 # 3D Loss Functions
