@@ -136,28 +136,28 @@ def fit_batch_on_slices(
 
         epoch_losses = []
 
-        for s, m, opt in zip(slice_indices, model_batch, optimizer_batch):
-            if s >= min(len(xs), len(ys)):
+        for i, model, optimizer in zip(slice_indices, model_batch, optimizer_batch):
+            if i >= min(len(xs), len(ys)):
                 continue
 
-            m.train()
-            x = dataLoader.to_torch_img(xs[s], device)  # (1,1,H,W)
-            y = dataLoader.to_torch_img(ys[s], device)  # (1,1,H,W)
+            model.train()
+            x = dataLoader.to_torch_img(xs[i], device)  # (1,1,H,W)
+            y = dataLoader.to_torch_img(ys[i], device)  # (1,1,H,W)
 
-            opt.zero_grad()
-            recon, mu, logvar = m(x)
-            loss = criterion(recon, y, mu, logvar)
+            optimizer.zero_grad()
+            recon  = model(x)
+            loss = criterion(recon, y)
             loss.backward()
-            opt.step()
+            optimizer.step()
 
             epoch_losses.append(float(loss.item()))
 
             # snapshot only if this model's slice is the one of interest
-            if (save_every > 0) and (epoch % save_every == 0) and (s == idx_to_show):
+            if (save_every > 0) and (epoch % save_every == 0) and (i == idx_to_show):
                 with torch.no_grad():
                     x_show = dataLoader.to_torch_img(xs[idx_to_show], device)
                     y_show = dataLoader.to_torch_img(ys[idx_to_show], device)
-                    recon_show, _, _ = m(x_show)
+                    recon_show = model(x_show)
 
                     x_np     = dataLoader.to_numpy_img(x_show)
                     y_np     = dataLoader.to_numpy_img(y_show)
@@ -165,7 +165,7 @@ def fit_batch_on_slices(
 
                 snapshots.append({
                     "iter": epoch,
-                    "slice_idx": s,
+                    "slice_idx": i,
                     "x": x_np,
                     "y": y_np,
                     "recon": recon_np
@@ -231,9 +231,9 @@ def fit_2D(
             y = dataLoader.to_torch_img(y_slice, device)   # (1,1,193,224)
 
             optimizer.zero_grad()
-            recon, mu, logvar = model(x)
+            recon = model(x)
 
-            loss = criterion(recon, y, mu, logvar)
+            loss = criterion(recon, y)
             loss.backward()
             optimizer.step()
 
@@ -248,7 +248,7 @@ def fit_2D(
             with torch.no_grad():
                 x_show = dataLoader.to_torch_img(xs[idx_to_show], device)
                 y_show = dataLoader.to_torch_img(ys[idx_to_show], device)
-                recon_show, _, _ = model(x_show)
+                recon_show = model(x_show)
 
                 # convert to numpy for visualization
                 x_np     = dataLoader.to_numpy_img(x_show)
