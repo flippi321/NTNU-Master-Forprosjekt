@@ -77,7 +77,7 @@ class VAE(nn.Module):
         self.up3   = UpUnit(32, 16)    # 96x112 -> 192x224
 
         # Two heads:
-        #   - img_head: direct image (keeps exact behavior of your original model)
+        #   - img_head: direct image
         #   - res_head: residual; if residual_output=True we add it to input for sharper details
         self.img_head = nn.Sequential(
             nn.Conv2d(16, 1, kernel_size=3, padding=1),
@@ -116,11 +116,11 @@ class VAE(nn.Module):
         return img, res
 
     def forward(self, x):
-        h, mu, logvar = self.encode(x)
+        _, mu, logvar = self.encode(x)
         z = self.reparameterize(mu, logvar)
         img, res = self.decode(z)
         if self.residual_output:
             x_hat = torch.clamp(x + res, 0.0, 1.0)
         else:
             x_hat = img                                
-        return x_hat, mu, logvar
+        return x_hat
