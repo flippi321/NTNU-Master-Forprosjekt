@@ -91,15 +91,8 @@ class UNet2D(nn.Module):
 
         # Save skips for decode()
         self._skips = (s1, s2, s3)
-
-        # For interface compatibility with 2D-Pipeline, return (mu, logvar)
-        mu = h
-        logvar = torch.zeros_like(h)
-        return mu, logvar
-
-    def reparameterize(self, mu, logvar):
-        # Deterministic pass-through to keep U-Net behavior stable
-        return mu
+        
+        return h
 
     def decode(self, z):
         assert self._skips is not None, "decode() called before encode(); call forward(x) or encode(x) first."
@@ -114,7 +107,6 @@ class UNet2D(nn.Module):
         return x
 
     def forward(self, x):
-        mu, logvar = self.encode(x)   # mu is bottleneck feature map
-        z = self.reparameterize(mu, logvar)
-        x_hat = self.decode(z)
-        return x_hat, mu, logvar
+        h = self.encode(x)
+        x_hat = self.decode(h)
+        return x_hat
