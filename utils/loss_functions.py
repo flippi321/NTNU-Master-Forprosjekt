@@ -10,13 +10,18 @@ import torch.nn.functional as F
 # model reconstructions and compare them
 # ---------------------------------------------
 
+def clip_loss(loss: int, max:int =1e4) -> int:
+    """Clip loss to avoid extreme values destabilizing training."""
+    return min(loss, max)
+
+
 def binary_2d_loss(recon, target, mu, logvar):
     # Reconstruction: BCE because inputs are in [0,1]
     bce = nn.functional.binary_cross_entropy(recon, target, reduction='mean')
     # KL divergence
     kld = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
     # Small KL weight for stability
-    return bce + 1e-3 * kld
+    return clip_loss(bce + 1e-3 * kld)
 
 
 def ssim_L1_2d_loss(recon, target, mu, logvar):
@@ -28,7 +33,7 @@ def ssim_L1_2d_loss(recon, target, mu, logvar):
     kld = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
 
     # Combine losses with weights
-    return ssim_loss + l1_loss + 1e-3 * kld
+    return clip_loss(ssim_loss + l1_loss + 1e-3 * kld)
 
 # ---------------------------------------------
 # 3D Loss Functions
