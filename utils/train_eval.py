@@ -43,7 +43,8 @@ def fit_2d_models_per_slice(
         device: torch.device,
         dataLoader,
         training_pairs: list[tuple[str, str]],
-        criterion,
+        training_loss_function, 
+        logged_loss_function,
         epochs: int = 1000,
         save_every: int = -1,
         total_slices: int = 193,
@@ -78,7 +79,8 @@ def fit_2d_models_per_slice(
             slice_indices=slice_indices,
             dataLoader=dataLoader,
             training_pairs=training_pairs,
-            criterion=criterion,
+            training_loss_function=training_loss_function,
+            logged_loss_function=logged_loss_function,
             epochs=epochs,
             save_every=save_every,
             crop_size=crop_size,
@@ -109,7 +111,8 @@ def fit_batch_on_slices(
         slice_indices: list[int],
         dataLoader,                       
         training_pairs: list[tuple[str, str]],
-        criterion,
+        training_loss_function,
+        logged_loss_function,
         epochs: int,  
         save_every: int,
         crop_size: tuple,
@@ -153,19 +156,25 @@ def fit_batch_on_slices(
             y = dataLoader.to_torch_img(ys[i], device)  # (1,1,H,W)
 
             optimizer.zero_grad()
-            recon  = model(x)
-            loss = criterion(recon, y)
+            recon, mu_opt, logvar_opt = model(x) 
+            
+            # UNET returns None for mu and logvar
+            if mu_opt is not None and logvar_opt is not None:
+                loss = training_loss_function(recon, y, mu_opt, logvar_opt)
+            else:
+                loss = training_loss_function(recon, y)
+
             loss.backward()
             optimizer.step()
 
-            epoch_losses.append(cap_logged_loss(loss))
+            epoch_losses.append(cap_logged_loss(logged_loss_function(recon, y)))
 
             # snapshot only if this model's slice is the one of interest
             if (save_every > 0) and (epoch % save_every == 0) and (i == idx_to_show):
                 with torch.no_grad():
                     x_show = dataLoader.to_torch_img(xs[idx_to_show], device)
                     y_show = dataLoader.to_torch_img(ys[idx_to_show], device)
-                    recon_show = model(x_show)
+                    recon_show, _, _ = model(x_show)
 
                     x_np     = dataLoader.to_numpy_img(x_show)
                     y_np     = dataLoader.to_numpy_img(y_show)
@@ -198,7 +207,8 @@ def fit_2D(
         device: torch.device,
         dataLoader: HuntDataLoader,
         training_pairs: list[tuple[str, str]],
-        criterion,
+        training_loss_function, 
+        logged_loss_function,
         epochs: int, 
         save_every: int = -1,
         crop_size: tuple = (192, 224),
@@ -239,13 +249,18 @@ def fit_2D(
             y = dataLoader.to_torch_img(y_slice, device)   # (1,1,193,224)
 
             optimizer.zero_grad()
-            recon = model(x)
+            recon, mu_opt, logvar_opt = model(x)
+            
+            # UNET returns None for mu and logvar
+            if mu_opt is not None and logvar_opt is not None:
+                loss = training_loss_function(recon, y, mu_opt, logvar_opt)
+            else:
+                loss = training_loss_function(recon, y)
 
-            loss = criterion(recon, y)
             loss.backward()
             optimizer.step()
 
-            loss_sum += cap_logged_loss(loss)
+            loss_sum += cap_logged_loss(logged_loss_function(recon, y))
         
         # Log mean loss for all slices in this epoch
         loss_history.append(loss_sum / num_slices)
@@ -256,7 +271,7 @@ def fit_2D(
             with torch.no_grad():
                 x_show = dataLoader.to_torch_img(xs[idx_to_show], device)
                 y_show = dataLoader.to_torch_img(ys[idx_to_show], device)
-                recon_show = model(x_show)
+                recon_show, _, _ = model(x_show)
 
                 # convert to numpy for visualization
                 x_np     = dataLoader.to_numpy_img(x_show)
