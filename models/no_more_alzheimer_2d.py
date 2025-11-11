@@ -109,4 +109,4 @@ class UNet2D(nn.Module):
     def forward(self, x):
         h = self.encode(x)
         x_hat = self.decode(h)
-        return x_hat
+        return x_hat, None, None # Matches VAE output. Stupid solution but works
