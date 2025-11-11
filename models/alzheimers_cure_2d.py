@@ -123,4 +123,4 @@ class VAE(nn.Module):
             x_hat = torch.clamp(x + res, 0.0, 1.0)
         else:
             x_hat = img                                
-        return x_hat
+        return x_hat, mu, logvar
