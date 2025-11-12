@@ -27,7 +27,7 @@ def ssim_L1_2d_loss(recon: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     # Combine losses with weights
     return ssim_loss + l1_loss
 
-def ssim_L1_kl_loss(recon: torch.Tensor, target: torch.Tensor, mu, logvar, beta=0.1):
+def ssim_L1_kl_loss(recon: torch.Tensor, target: torch.Tensor, mu, logvar, beta=1e-3) -> torch.Tensor:
     ssim_loss = 1 - ssim(recon, target, data_range=1.0, size_average=True)
     l1_loss   = F.l1_loss(recon, target, reduction='mean')
     
