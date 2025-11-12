@@ -170,7 +170,7 @@ def fit_batch_on_slices(
             epoch_losses.append(cap_logged_loss(logged_loss_function(recon, y)))
 
             # snapshot only if this model's slice is the one of interest
-            if (save_every > 0) and (epoch % save_every == 0) and (i == idx_to_show):
+            if (save_every > 0) and (epoch % save_every == 0 or epoch == epochs - 1) and (i == idx_to_show):
                 with torch.no_grad():
                     x_show = dataLoader.to_torch_img(xs[idx_to_show], device)
                     y_show = dataLoader.to_torch_img(ys[idx_to_show], device)
@@ -266,7 +266,7 @@ def fit_2D(
         loss_history.append(loss_sum / num_slices)
 
         # --- Every Xth pair, save a snapshot of reconstruction vs target ---
-        if save_every > 0 and (epoch % save_every == 0) and num_slices > 0: 
+        if save_every > 0 and (epoch % save_every == 0 or epoch == epochs - 1) and num_slices > 0: 
             # pick a safe index to visualize
             with torch.no_grad():
                 x_show = dataLoader.to_torch_img(xs[idx_to_show], device)
@@ -387,7 +387,7 @@ def fit_3D(
                 print(f"[Iter {i}] total: {loss.item():.6f} | L1: {base:.6f} | TVΔ: {tvv:.6f}")
 
         # --- snapshot ---
-        if (i % save_every == 0):
+        if (i % save_every == 0 or i == epochs - 1):
             with torch.no_grad():
                 x_np = mid_axial_slice_5d(x)
                 y_np = mid_axial_slice_5d(y)
@@ -536,7 +536,7 @@ def fit_3D_gan(
                 f"AdvG={loss_adv_G.item():.4f}"
             )
 
-        if it % save_every == 0:
+        if it % save_every == 0 or it == epochs - 1:
             with torch.no_grad():
                 x_np   = mid_axial_slice_5d(x_vol)
                 y_np   = mid_axial_slice_5d(y_vol)
