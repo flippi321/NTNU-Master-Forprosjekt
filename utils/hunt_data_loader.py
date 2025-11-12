@@ -211,6 +211,8 @@ class HuntDataLoader():
         -> numpy (H,W) in [0,1]
         """
         if isinstance(t, torch.Tensor):
-            t = t.detach().cpu()
-        arr = t.squeeze().numpy() if isinstance(t, torch.Tensor) else np.array(t).squeeze()
+            arr = t.detach().cpu().squeeze().numpy()
+        else:
+            arr = np.array(t).squeeze()
         return np.clip(arr, 0.0, 1.0)
+
