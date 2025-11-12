@@ -45,7 +45,7 @@ class UNet2D(nn.Module):
     """
     def __init__(self, latent_dim: int = 64, in_channels: int = 1, out_channels: int = 1, base_ch: int = 32):
         super().__init__()
-        self.latent_dim = latent_dim  # kept for pipeline compatibility
+        self.latent_dim = latent_dim 
 
         # Encoder path
         self.enc1 = ConvBlock(in_channels, base_ch)        # -> (B,32,192,224)
