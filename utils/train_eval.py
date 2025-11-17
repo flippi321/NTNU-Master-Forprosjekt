@@ -1,3 +1,4 @@
+from models.MiniEncoder3D import perceptual_loss_3d
 import torch
 import numpy as np
 import torch.nn as nn
@@ -316,15 +317,19 @@ def fit_3D_gan(
     epochs=1,
     lr_G=1e-4,
     lr_D=1e-4,
-    lambda_recon=1.0,   # weight on L1+SSIM
-    lambda_adv=0.01,    # weight on adversarial loss for G
+    alpha=25.0,          # weight on voxel-wise L1
+    beta=25.0,    # weight on perceptual loss
     trim_slices=0,
-    crop_size=(192,224),
+    crop_size=(193,229),
     save_every=10,
     print_every=1,
+    phi=None,            # <- pass PhiFeatureExtractor here
+    layer_weights=None,  # optional list of per-layer weights
 ):
-    opt_G = optim.Adam(G.parameters(), lr=lr_G, weight_decay=1e-4)
-    opt_D = optim.Adam(D.parameters(), lr=lr_D, weight_decay=1e-4)
+    assert phi is not None, "Pass a PhiFeatureExtractor instance as 'phi' for MPGAN."
+
+    opt_G = optim.Adam(G.parameters(), lr=lr_G, betas=(0.5, 0.999))
+    opt_D = optim.Adam(D.parameters(), lr=lr_D, betas=(0.5, 0.999))
 
     saved_snaps = []
 
@@ -361,15 +366,11 @@ def fit_3D_gan(
         # ------------------------------------------------------------------
         opt_D.zero_grad()
 
-        # D(real) should be 1
-        pred_real = D(y_vol)     # shape (1,1) or (1,) or (1,patches...) depending on D design
-        real_label = torch.ones_like(pred_real, device=device)
-        loss_D_real = bce(pred_real, real_label)
+        pred_real = D(y_vol)
+        loss_D_real = bce(pred_real, torch.ones_like(pred_real, device=device))
 
-        # D(fake) should be 0 (detach so we don't backprop to G here)
         pred_fake = D(y_fake.detach())
-        fake_label = torch.zeros_like(pred_fake, device=device)
-        loss_D_fake = bce(pred_fake, fake_label)
+        loss_D_fake = bce(pred_fake, torch.zeros_like(pred_fake, device=device))
 
         loss_D_total = 0.5 * (loss_D_real + loss_D_fake)
         loss_D_total.backward()
@@ -380,18 +381,18 @@ def fit_3D_gan(
         # ------------------------------------------------------------------
         opt_G.zero_grad()
 
-        # 2a) Reconstruction term (L1 + SSIM)
-        l1_term = torch.mean(torch.abs(y_fake - y_vol))
-        ssim_term = ssim_loss_3d(y_fake, y_vol)
-        loss_recon = 0.5*l1_term + 0.5*ssim_term  # same idea as recon_loss()
-
-        # 2b) Adversarial term: we want D(y_fake) to say "real"
+        # (a) adversarial: want D(y_fake) -> 1
         pred_fake_for_G = D(y_fake)
-        adv_label = torch.ones_like(pred_fake_for_G, device=device)  # trick D
-        loss_adv_G = bce(pred_fake_for_G, adv_label)
+        loss_adv_G = bce(pred_fake_for_G, torch.ones_like(pred_fake_for_G, device=device))
 
-        # 2c) Total G loss
-        loss_G_total = lambda_recon*loss_recon + lambda_adv*loss_adv_G
+        # (b) voxel-wise L1
+        loss_l1 = torch.mean(torch.abs(y_fake - y_vol))
+
+        # (c) perceptual via φ (frozen)
+        loss_perc = perceptual_loss_3d(y_fake, y_vol, phi, layer_weights=layer_weights, reduction="l1")
+
+        # total generator loss (MPGAN)
+        loss_G_total = loss_adv_G + alpha * loss_l1 + beta * loss_perc
         loss_G_total.backward()
         opt_G.step()
 
@@ -400,10 +401,10 @@ def fit_3D_gan(
         # ------------------------------------------------------------------
         if (print_every > 0) and (it % print_every == 0):
             print(
-                f"[Iter {it}] "
-                f"D_total={loss_D_total.item():.4f} "
+                f"[Iter {it}] D_total={loss_D_total.item():.4f} "
                 f"G_total={loss_G_total.item():.4f} "
-                f"Recon={loss_recon.item():.4f} "
+                f"L1={loss_l1.item():.4f} "
+                f"Perc={loss_perc.item():.4f} "
                 f"AdvG={loss_adv_G.item():.4f}"
             )
 
