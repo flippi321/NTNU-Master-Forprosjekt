@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import numpy as np
 from pytorch_msssim import ssim
 import torch.nn.functional as F
 
@@ -10,25 +11,30 @@ import torch.nn.functional as F
 # model reconstructions and compare them
 # ---------------------------------------------
 
-def binary_2d_loss(recon, target, mu, logvar):
+def binary_2d_loss(recon: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     # Reconstruction: BCE because inputs are in [0,1]
     bce = nn.functional.binary_cross_entropy(recon, target, reduction='mean')
     # KL divergence
-    kld = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
-    # Small KL weight for stability
-    return bce + 1e-3 * kld
+    return bce
 
-
-def ssim_L1_2d_loss(recon, target, mu, logvar):
+def ssim_L1_2d_loss(recon: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     # SSIM loss
     ssim_loss = 1 - ssim(recon, target, data_range=1.0, size_average=True)
+    
     # L1 loss
     l1_loss = nn.functional.l1_loss(recon, target, reduction='mean')
-    # KL divergence
-    kld = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
-
+    
     # Combine losses with weights
-    return ssim_loss + l1_loss + 1e-3 * kld
+    return ssim_loss + l1_loss
+
+def ssim_L1_kl_loss(recon: torch.Tensor, target: torch.Tensor, mu, logvar, beta=1e-3) -> torch.Tensor:
+    ssim_loss = 1 - ssim(recon, target, data_range=1.0, size_average=True)
+    l1_loss   = F.l1_loss(recon, target, reduction='mean')
+    
+    kl = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+
+    return ssim_loss + l1_loss + beta * kl
+
 
 # ---------------------------------------------
 # 3D Loss Functions

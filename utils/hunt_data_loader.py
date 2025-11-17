@@ -137,8 +137,8 @@ class HuntDataLoader():
         data = self.load_from_path(data_path)
         return data[:, :, data.shape[2] // 2]
 
-    def get_slice(self, data_path, index):
-        data = self.load_from_path(data_path)
+    def get_slice(self, data_path, crop_size=None, index=0):
+        data = self.load_from_path(data_path, crop_size)
         return data[:, :, index]
     
     def get_all_slices_as_tensor(self, data_path, crop_size=None):
@@ -211,6 +211,8 @@ class HuntDataLoader():
         -> numpy (H,W) in [0,1]
         """
         if isinstance(t, torch.Tensor):
-            t = t.detach().cpu()
-        arr = t.squeeze().numpy() if isinstance(t, torch.Tensor) else np.array(t).squeeze()
+            arr = t.detach().cpu().squeeze().numpy()
+        else:
+            arr = np.array(t).squeeze()
         return np.clip(arr, 0.0, 1.0)
+

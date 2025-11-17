@@ -1,109 +1,221 @@
-from models.MiniEncoder3D import perceptual_loss_3d
+import os
 import torch
+import random
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from utils.hunt_data_loader import HuntDataLoader
 from utils.loss_functions import tv_loss_3d, ssim_loss_3d
-import random
+from models.MiniEncoder3D import perceptual_loss_3d
+from tqdm import tqdm
 
 def build_optimizer(model, lr=1e-4, wd=1e-4):
     return optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
 
-def fit_2d_per_slice(
-        models: list,                     
+def cap_logged_loss(loss: torch.Tensor, loss_cap: float = 1e6) -> float:
+    """
+    Cap a tensor loss.
+    Returns a float value suitable for logging.
+    """
+    capped = torch.clamp(loss, max=loss_cap)
+    return float(capped.item())
+
+def load_model_weights(model, model_path, device, verbose=False):
+    """
+    Loads model weights from the specified path into the given model.
+    """
+    if os.path.isfile(model_path):
+        model.load_state_dict(torch.load(model_path, map_location=device))
+        if verbose: print(f"Loaded model weights from {model_path}")
+    else:
+        if verbose: print(f"No model weights found at {model_path}. Starting with random weights.")
+
+def save_model_weights(model, model_path, verbose=False):
+    """
+    Saves model weights from the given model to the specified path.
+    """
+    torch.save(model.state_dict(), model_path)
+    if verbose: print(f"Saved model weights to {model_path}")
+
+def fit_2d_models_per_slice(
+        model_constructor,
+        optimizer_constructor,
         device: torch.device,
+        dataLoader,
+        training_pairs: list[tuple[str, str]],
+        training_loss_function, 
+        logged_loss_function,
+        epochs: int = 1000,
+        save_every: int = -1,
+        total_slices: int = 193,
+        crop_size: tuple = (192, 224),
+        idx_to_show: int = 93,  # Approx. middle slice
+        model_dir: str = "",    # Assume load/save if defined
+        model_name_prefix: str = "",
+        batch_size: int = 49,
+    ):
+    """
+    Train per-slice models in batches of size `batch_size`.
+    Each model in the batch trains on the SAME client image per step,
+    but on its own fixed slice index.
+    """
+    loss_histories = []
+    snapshots = []
+
+    # iterate over slice indices in chunks
+    for start in tqdm(range(0, total_slices, batch_size), desc="Training Slices"):
+        end = min(start + batch_size, total_slices)
+        slice_indices = list(range(start, end))
+
+        # build models/optimizers for this batch
+        model_batch = [model_constructor().to(device) for _ in slice_indices]
+        optimizer_batch = [optimizer_constructor(m) for m in model_batch]
+        model_names = [f"{model_name_prefix}_slice_{s}.pt" for s in slice_indices]
+
+        loss_history_i, saved_snapshots_i = fit_batch_on_slices(
+            model_batch=model_batch,
+            optimizer_batch=optimizer_batch,
+            device=device,
+            slice_indices=slice_indices,
+            dataLoader=dataLoader,
+            training_pairs=training_pairs,
+            training_loss_function=training_loss_function,
+            logged_loss_function=logged_loss_function,
+            epochs=epochs,
+            save_every=save_every,
+            crop_size=crop_size,
+            idx_to_show=idx_to_show,
+            model_dir=model_dir,
+            model_names=model_names,
+        )
+
+        loss_histories.append(np.array(loss_history_i, dtype=float))
+        snapshots.extend(saved_snapshots_i)
+
+        # cleanup
+        del model_batch, optimizer_batch
+        torch.cuda.empty_cache()
+
+    # average the per-batch loss curves (pad with NaNs then nanmean)
+    max_len = max(len(h) for h in loss_histories)
+    padded = [np.pad(h, (0, max_len - len(h)), constant_values=np.nan) for h in loss_histories]
+    loss_curve = np.nanmean(np.vstack(padded), axis=0)
+
+    snapshots = sorted(snapshots, key=lambda x: (x.get("iter", 0), x.get("slice_idx", -1)))
+    return loss_curve, snapshots
+
+def fit_batch_on_slices(
+        model_batch: list[nn.Module],
+        optimizer_batch: list[optim.Optimizer],
+        device: torch.device,
+        slice_indices: list[int],
         dataLoader,                       
         training_pairs: list[tuple[str, str]],
-        criterion,
-        epochs: int,
-        optimizers: list | None = None,   
-        save_every: int = -1,
-        crop_size: tuple = (192, 224),
-        slice_count: int = 193,
-        idx_to_show: int = 93, # Approximately middle slice        
+        training_loss_function,
+        logged_loss_function,
+        epochs: int,  
+        save_every: int,
+        crop_size: tuple,
+        idx_to_show: int,  # Approx. middle slice
+        model_dir: str,    # Assume load/save if defined
+        model_names: list[str],
     ):
     """
     Trains a list of per-slice models. Model i is trained on slice i of each client volume.
     """
-    
-    assert len(models) == slice_count, f"Expected {slice_count} models, got {len(models)}"
-    
-    if optimizers is None:
-        optimizers = [build_optimizer(m) for m in models]
-    else:
-        assert len(optimizers) == slice_count, f"Expected {slice_count} optimizers, got {len(optimizers)}"
+    assert len(model_batch) == len(optimizer_batch) == len(slice_indices), "Batch lists must align"
+    if model_names is None:
+        model_names = ["" for _ in model_batch]
 
-    saved_snapshots = []
+    # load weights for all models if available
+    if model_dir:
+        for m, name in zip(model_batch, model_names):
+            if name:
+                load_model_weights(m, os.path.join(model_dir, name), device)
+
     loss_history = []
+    snapshots    = []
 
-    # Training Loop
-    for epoch in range(epochs):
-        client = random.randint(0, len(training_pairs) - 1)
-        x_vol = dataLoader.get_all_slices_as_tensor(training_pairs[client][0], crop_size=crop_size)  # (N, 192, 224) 
-        y_vol = dataLoader.get_all_slices_as_tensor(training_pairs[client][1], crop_size=crop_size)  # (N, 192, 224)
-        num_slices = min(len(x_vol), len(y_vol), slice_count)
-        
-        # Train each model i on slice i for all slices
-        for i in range(num_slices):
-            model_i = models[i]
-            opt_i   = optimizers[i]
-            model_i.train()
+    num_clients = len(training_pairs)
 
-            x_slice = x_vol[i]
-            y_slice = y_vol[i]
+    # compact per-batch epoch progress bar (keeps outer bar intact)
+    for epoch in tqdm(range(epochs), desc=f"Epochs {slice_indices[0]}–{slice_indices[-1]}", leave=False):
+        # pick one client; all models see the same image stacks this step
+        client = random.randint(0, num_clients - 1)
+        xs = dataLoader.get_all_slices_as_tensor(training_pairs[client][0], crop_size=crop_size)
+        ys = dataLoader.get_all_slices_as_tensor(training_pairs[client][1], crop_size=crop_size)
 
-            x = dataLoader.to_torch_img(x_slice, device)  # (1,1,192,224)
-            y = dataLoader.to_torch_img(y_slice, device)  # (1,1,192,224)
+        epoch_losses = []
 
-            opt_i.zero_grad()
-            recon, mu, logvar = model_i(x)
+        for i, model, optimizer in zip(slice_indices, model_batch, optimizer_batch):
+            if i >= min(len(xs), len(ys)):
+                continue
 
-            loss = criterion(recon, y, mu, logvar)
+            model.train()
+            x = dataLoader.to_torch_img(xs[i], device)  # (1,1,H,W)
+            y = dataLoader.to_torch_img(ys[i], device)  # (1,1,H,W)
+
+            optimizer.zero_grad()
+            recon, mu_opt, logvar_opt = model(x) 
+            
+            # UNET returns None for mu and logvar
+            if mu_opt is not None and logvar_opt is not None:
+                loss = training_loss_function(recon, y, mu_opt, logvar_opt)
+            else:
+                loss = training_loss_function(recon, y)
+
             loss.backward()
-            opt_i.step()
+            optimizer.step()
 
-            # Log loss
-            if(idx_to_show == i):
-                loss_history.append({"slice": i, "loss": float(loss.item())})
-        
-        # --- Every Xth pair, save a snapshot of reconstruction vs target ---
-        if save_every > 0 and (epoch % save_every == 0):
-            with torch.no_grad():
-                model_i = models[idx_to_show]
-                model_i.eval()
-                x_show = dataLoader.to_torch_img(x_vol[idx_to_show], device)
-                y_show = dataLoader.to_torch_img(y_vol[idx_to_show], device)
-                recon_show, _, _ = model_i(x_show)
+            epoch_losses.append(cap_logged_loss(logged_loss_function(recon, y)))
 
-                x_np     = dataLoader.to_numpy_img(x_show)
-                y_np     = dataLoader.to_numpy_img(y_show)
-                recon_np = dataLoader.to_numpy_img(recon_show)
+            # snapshot only if this model's slice is the one of interest
+            if (save_every > 0) and (epoch % save_every == 0 or epoch == epochs - 1) and (i == idx_to_show):
+                with torch.no_grad():
+                    x_show = dataLoader.to_torch_img(xs[idx_to_show], device)
+                    y_show = dataLoader.to_torch_img(ys[idx_to_show], device)
+                    recon_show, _, _ = model(x_show)
 
-            saved_snapshots.append({
-                "iter": epoch,
-                "slice": idx_to_show,
-                "x": x_np,
-                "y": y_np,
-                "recon": recon_np
-            })
-            print(f"Saved snapshot at epoch {epoch}")
+                    x_np     = dataLoader.to_numpy_img(x_show)
+                    y_np     = dataLoader.to_numpy_img(y_show)
+                    recon_np = dataLoader.to_numpy_img(recon_show)
 
-    return models, loss_history, saved_snapshots
+                snapshots.append({
+                    "iter": epoch,
+                    "slice_idx": i,
+                    "x": x_np,
+                    "y": y_np,
+                    "recon": recon_np
+                })
+
+        if epoch_losses:
+            loss_history.append(sum(epoch_losses) / len(epoch_losses))
+
+    # save weights individually for all models in the batch
+    if model_dir:
+        os.makedirs(model_dir, exist_ok=True)
+        for m, name in zip(model_batch, model_names):
+            if name:
+                save_model_weights(m, os.path.join(model_dir, name))
+
+    return loss_history, snapshots
 
 
 def fit_2D(
-        model,    
+        model: nn.Module,
+        optimizer: optim.Optimizer,  
         device: torch.device,
         dataLoader: HuntDataLoader,
         training_pairs: list[tuple[str, str]],
-        criterion,
+        training_loss_function, 
+        logged_loss_function,
         epochs: int, 
-        optimizer=None,
         save_every: int = -1,
         crop_size: tuple = (192, 224),
-        idx_to_show: int = 93
+        idx_to_show: int = 93,
+        model_dir: str = "",
+        model_name: str = ""
         ):
     """
     Trains a model to reconstruct 2D slices from client volumes.
@@ -112,39 +224,50 @@ def fit_2D(
     optimizer = optimizer or build_optimizer(model)
     saved_snapshots = []
     loss_history = []
+    
+    # Load existing weights if available
+    if model_dir and model_name:
+        model_path = os.path.join(model_dir, model_name + ".pt")
+        load_model_weights(model, model_path, device, verbose=True)
 
-    for epoch in range(epochs):
+    for epoch in tqdm(range(epochs), desc="Training 2D VAE Model on Epochs"):
         model.train()
 
         # We load a random client data-pair
         client = random.randint(0, len(training_pairs)-1)
-        xs = dataLoader.get_all_slices_as_tensor(training_pairs[client][0], crop_size=crop_size)  # (N, 192, 224)
-        ys = dataLoader.get_all_slices_as_tensor(training_pairs[client][1], crop_size=crop_size)  # (N, 192, 224)
+        xs = dataLoader.get_all_slices_as_tensor(training_pairs[client][0], crop_size=crop_size)  # (193, 193, 224)
+        ys = dataLoader.get_all_slices_as_tensor(training_pairs[client][1], crop_size=crop_size)  # (193, 193, 224)
 
-        num = min(len(xs), len(ys)) # They should be equal, but just in case
-        
+        num_slices = min(len(xs), len(ys)) # They should be equal, but just in case
+        loss_sum = 0.0
 
         # Iterate over each slice
-        for i in range(num):
+        for i in range(num_slices):
             x_slice = xs[i]
             y_slice = ys[i]
 
-            x = dataLoader.to_torch_img(x_slice, device)   # (1,1,192,224)
-            y = dataLoader.to_torch_img(y_slice, device)   # (1,1,192,224)
+            x = dataLoader.to_torch_img(x_slice, device)   # (1,1,193,224)
+            y = dataLoader.to_torch_img(y_slice, device)   # (1,1,193,224)
 
             optimizer.zero_grad()
-            recon, mu, logvar = model(x)
+            recon, mu_opt, logvar_opt = model(x)
+            
+            # UNET returns None for mu and logvar
+            if mu_opt is not None and logvar_opt is not None:
+                loss = training_loss_function(recon, y, mu_opt, logvar_opt)
+            else:
+                loss = training_loss_function(recon, y)
 
-            loss = criterion(recon, y, mu, logvar)
             loss.backward()
             optimizer.step()
 
-            # Log loss
-            if(idx_to_show == i):
-                loss_history.append({"slice": i, "loss": float(loss.item())})
+            loss_sum += cap_logged_loss(logged_loss_function(recon, y))
+        
+        # Log mean loss for all slices in this epoch
+        loss_history.append(loss_sum / num_slices)
 
         # --- Every Xth pair, save a snapshot of reconstruction vs target ---
-        if save_every > 0 and (epoch % save_every == 0) and num > 0: 
+        if save_every > 0 and (epoch % save_every == 0 or epoch == epochs - 1) and num_slices > 0: 
             # pick a safe index to visualize
             with torch.no_grad():
                 x_show = dataLoader.to_torch_img(xs[idx_to_show], device)
@@ -157,7 +280,13 @@ def fit_2D(
                 recon_np = dataLoader.to_numpy_img(recon_show) 
 
             saved_snapshots.append({"iter": epoch, "x": x_np, "y": y_np, "recon": recon_np})
-            print(f"Saved snapshot for pair {epoch} at slice idx {idx_to_show}")
+
+    # Save final model weights
+    if model_dir and model_name:
+        os.makedirs(model_dir, exist_ok=True)
+        model_path = os.path.join(model_dir, model_name + ".pt")
+        save_model_weights(model, model_path, verbose=True)
+
     return model, loss_history, saved_snapshots
 
 def fit_3D(
@@ -171,7 +300,7 @@ def fit_3D(
     print_every=-1,
     save_every=-1,
     trim_slices=0,
-    crop_size=(192, 224),
+    crop_size=(193, 224),
     lambda_tv=1e-5,
 ):
     """
@@ -259,7 +388,7 @@ def fit_3D(
                 print(f"[Iter {i}] total: {loss.item():.6f} | L1: {base:.6f} | TVΔ: {tvv:.6f}")
 
         # --- snapshot ---
-        if (i % save_every == 0):
+        if (i % save_every == 0 or i == epochs - 1):
             with torch.no_grad():
                 x_np = mid_axial_slice_5d(x)
                 y_np = mid_axial_slice_5d(y)
@@ -408,7 +537,7 @@ def fit_3D_gan(
                 f"AdvG={loss_adv_G.item():.4f}"
             )
 
-        if it % save_every == 0:
+        if it % save_every == 0 or it == epochs - 1:
             with torch.no_grad():
                 x_np   = mid_axial_slice_5d(x_vol)
                 y_np   = mid_axial_slice_5d(y_vol)
