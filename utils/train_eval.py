@@ -315,7 +315,7 @@ def fit_3D(
     """
     
     optimizer = optimizer or build_optimizer(model)
-    saved_snapshots = saved_snapshots or []
+    saved_snapshots = []
 
     for i in range(epochs):
         model.train()
@@ -445,9 +445,11 @@ def fit_3D_gan(
     training_pairs: list[tuple[str, str]],
     epochs=1,
     lr_G=1e-4,
+    opt_G=None,
     lr_D=1e-4,
-    alpha=25.0,          # weight on voxel-wise L1
-    beta=25.0,    # weight on perceptual loss
+    opt_D=None,
+    alpha=25.0,         # weight on voxel-wise L1
+    beta=25.0,          # weight on perceptual loss
     trim_slices=0,
     crop_size=(193,229),
     save_every=10,
@@ -457,8 +459,8 @@ def fit_3D_gan(
 ):
     assert phi is not None, "Pass a PhiFeatureExtractor instance as 'phi' for MPGAN."
 
-    opt_G = optim.Adam(G.parameters(), lr=lr_G, betas=(0.5, 0.999))
-    opt_D = optim.Adam(D.parameters(), lr=lr_D, betas=(0.5, 0.999))
+    opt_G = opt_G or optim.Adam(G.parameters(), lr=lr_G, betas=(0.5, 0.999))
+    opt_D = opt_D or optim.Adam(D.parameters(), lr=lr_D, betas=(0.5, 0.999))
 
     saved_snaps = []
 
