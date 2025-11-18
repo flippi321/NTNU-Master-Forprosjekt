@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from utils.hunt_data_loader import HuntDataLoader
-from utils.loss_functions import tv_loss_3d, ssim_loss_3d
+from utils.loss_functions import ssim_loss_3d
 from models.MiniEncoder3D import perceptual_loss_3d
 from tqdm import tqdm
 
@@ -295,19 +295,19 @@ def fit_3D(
     dataLoader: HuntDataLoader,
     training_pairs: list[tuple[str, str]],
     criterion=None,
+    logged_loss_function=None,
     epochs=1,
     optimizer=None,
     print_every=-1,
     save_every=-1,
     trim_slices=0,
-    crop_size=(193, 224),
-    lambda_tv=1e-5,
+    crop_size=(193, 224)
 ):
     """
     Train a 3D model on full volumes using HuntDataLoader.
     - Expects model(x) -> either:
         * y_hat
-        * (y_hat, delta)   where delta is a residual volume used for TV regularization
+        * (y_hat, delta)   where delta is a residual volume previously used for TV regularization
     - criterion is optional:
         * If provided and accepts (y_hat, y), we use it.
         * Otherwise we fall back to L1.
@@ -315,7 +315,7 @@ def fit_3D(
     """
     
     optimizer = optimizer or build_optimizer(model)
-    saved_snapshots = []
+    saved_snapshots, loss_history = [], []
 
     for i in range(epochs):
         model.train()
@@ -346,12 +346,11 @@ def fit_3D(
         # forward (support both y_hat or (y_hat, delta))
         out = model(x)
         if isinstance(out, (tuple, list)) and len(out) >= 2:
-            y_hat, delta = out[0], out[1]
+            y_hat, _ = out[0], out[1]
         else:
-            y_hat, delta = out, None
+            y_hat, _ = out, None
 
         # --- loss ---
-        used_custom_criterion = False
         loss = None
 
         if criterion is not None:
@@ -362,7 +361,6 @@ def fit_3D(
                     loss = crit_out[0]
                 else:
                     loss = crit_out
-                used_custom_criterion = True
             except TypeError:
                 # The provided criterion didn't match (y_hat,y); we'll fall back to L1
                 pass
@@ -371,21 +369,16 @@ def fit_3D(
             # fallback: L1
             loss = F.l1_loss(y_hat, y)
 
-        # add small TV on residual if available
-        if delta is not None and lambda_tv is not None and lambda_tv > 0:
-            loss = loss + lambda_tv * tv_loss_3d(delta)
-
         loss.backward()
         optimizer.step()
 
+        # --- log ---
+        if logged_loss_function is not None:
+            logged_loss = cap_logged_loss(logged_loss_function(y_hat, y))
+            loss_history.append(logged_loss)
+
         if (print_every > 0) and (i % print_every == 0):
-            if used_custom_criterion:
-                print(f"[Iter {i}] total: {loss.item():.6f} (custom criterion)"
-                      + (f" + TV" if delta is not None and lambda_tv > 0 else ""))
-            else:
-                base = F.l1_loss(y_hat.detach(), y).item()
-                tvv = tv_loss_3d(delta).item() if (delta is not None and lambda_tv > 0) else 0.0
-                print(f"[Iter {i}] total: {loss.item():.6f} | L1: {base:.6f} | TVΔ: {tvv:.6f}")
+            print(f"[Iter {i}] total: {loss.item():.6f}")
 
         # --- snapshot ---
         if (i % save_every == 0 or i == epochs - 1):
@@ -397,7 +390,7 @@ def fit_3D(
             saved_snapshots.append({"iter": i, "x": x_np, "y": y_np, "recon": recon_np, "loss": loss.item()})
             print(f"Saved snapshot at iter {i} (mid-axial slice)")
 
-    return model, saved_snapshots
+    return model, loss_history, saved_snapshots
 
 def to_torch_vol(vol_DHW, device):
     """
@@ -456,6 +449,7 @@ def fit_3D_gan(
     print_every=1,
     phi=None,            # <- pass PhiFeatureExtractor here
     layer_weights=None,  # optional list of per-layer weights
+    logged_loss_function=None,
 ):
     assert phi is not None, "Pass a PhiFeatureExtractor instance as 'phi' for MPGAN."
 
@@ -463,6 +457,7 @@ def fit_3D_gan(
     opt_D = opt_D or optim.Adam(D.parameters(), lr=lr_D, betas=(0.5, 0.999))
 
     saved_snaps = []
+    loss_history = []
 
     bce = nn.BCEWithLogitsLoss()  # standard GAN BCE loss
 
@@ -527,6 +522,9 @@ def fit_3D_gan(
         loss_G_total.backward()
         opt_G.step()
 
+        if logged_loss_function is not None:
+            loss_history.append(cap_logged_loss(logged_loss_function(y_fake, y_vol)))
+
         # ------------------------------------------------------------------
         # Logging / snapshot
         # ------------------------------------------------------------------
@@ -554,4 +552,4 @@ def fit_3D_gan(
             })
             print(f"Saved snapshot at iter {it}")
 
-    return G, D, saved_snaps
+    return G, D, loss_history, saved_snaps
