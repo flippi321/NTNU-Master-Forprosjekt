@@ -329,14 +329,14 @@ def evaluate_global_model(model, subset, data_loader, device, loss_function, cro
     total = len(subset) * 192
     return avg_error / total
 
-def evaluate_slice_wise_model(
+def evaluate_slice_model_batch(
         model_batch,
         subset,
+        start_slice,
         data_loader,
         device,
         loss_function,
         crop_size=(192, 224),
-        max_slices: int = 192,
     ):
     """
     Evaluate a slice-wise model ensemble.
@@ -358,12 +358,11 @@ def evaluate_slice_wise_model(
             y_vol = data_loader.load_from_path(y_path, crop_size)
 
             depth = x_vol.shape[2]
-            # how many slices can we actually use?
-            num_slices = min(max_slices, depth, len(model_batch))
 
-            for i in range(num_slices):
-                x_slice = x_vol[:, :, i]
-                y_slice = y_vol[:, :, i]
+            for i in range(model_batch):
+                idx = start_slice + i
+                x_slice = x_vol[:, :, idx]
+                y_slice = y_vol[:, :, idx]
 
                 x = data_loader.to_torch_img(x_slice, device)
                 y = data_loader.to_torch_img(y_slice, device)
@@ -371,7 +370,7 @@ def evaluate_slice_wise_model(
                 recon, _, _ = model_batch[i](x)
                 avg_error += loss_function(recon, y).item()
 
-    total = len(subset) * num_slices
+    total = len(subset) * len(model_batch)
     return avg_error / total
 
 
