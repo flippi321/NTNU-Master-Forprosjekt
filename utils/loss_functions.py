@@ -17,7 +17,7 @@ def binary_2d_loss(recon: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     # KL divergence
     return bce
 
-def ssim_L1_2d_loss(recon: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+def ssim_L1_2d_loss(recon: torch.Tensor, target: torch.Tensor, l1_weight=0.5, ssim_weight=0.5) -> torch.Tensor:
     # SSIM loss
     ssim_loss = 1 - ssim(recon, target, data_range=1.0, size_average=True)
     
@@ -25,15 +25,15 @@ def ssim_L1_2d_loss(recon: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     l1_loss = nn.functional.l1_loss(recon, target, reduction='mean')
     
     # Combine losses with weights
-    return ssim_loss + l1_loss
+    return ssim_weight * ssim_loss + l1_weight * l1_loss
 
-def ssim_L1_kl_loss(recon: torch.Tensor, target: torch.Tensor, mu, logvar, beta=1e-3) -> torch.Tensor:
+def ssim_L1_kl_loss(recon: torch.Tensor, target: torch.Tensor, mu, logvar, l1_weight=0.5, ssim_weight=0.5, kl_weight=1e-3) -> torch.Tensor:
     ssim_loss = 1 - ssim(recon, target, data_range=1.0, size_average=True)
     l1_loss   = F.l1_loss(recon, target, reduction='mean')
     
     kl = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
 
-    return ssim_loss + l1_loss + beta * kl
+    return ssim_weight * ssim_loss + l1_weight * l1_loss + kl_weight * kl
 
 
 # ---------------------------------------------
