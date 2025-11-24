@@ -10,6 +10,10 @@ from utils.loss_functions import ssim_loss_3d
 from models.MiniEncoder3D import perceptual_loss_3d
 from tqdm import tqdm
 
+# ---------------------------------------------
+# General Helper Functions
+# ---------------------------------------------
+
 def build_optimizer(model, lr=1e-4, wd=1e-4):
     return optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
 
@@ -21,22 +25,10 @@ def cap_logged_loss(loss: torch.Tensor, loss_cap: float = 1e6) -> float:
     capped = torch.clamp(loss, max=loss_cap)
     return float(capped.item())
 
-def load_model_weights(model, model_path, device, verbose=False):
-    """
-    Loads model weights from the specified path into the given model.
-    """
-    if os.path.isfile(model_path):
-        model.load_state_dict(torch.load(model_path, map_location=device))
-        if verbose: print(f"Loaded model weights from {model_path}")
-    else:
-        if verbose: print(f"No model weights found at {model_path}. Starting with random weights.")
 
-def save_model_weights(model, model_path, verbose=False):
-    """
-    Saves model weights from the given model to the specified path.
-    """
-    torch.save(model.state_dict(), model_path)
-    if verbose: print(f"Saved model weights to {model_path}")
+# ---------------------------------------------
+# 2D Training Loop
+# ---------------------------------------------
 
 def fit_2d_models_per_slice(
         model_constructor,
@@ -288,6 +280,105 @@ def fit_2D(
         save_model_weights(model, model_path, verbose=True)
 
     return model, loss_history, saved_snapshots
+
+# ---------------------------------------------
+# 2D Helper Functions
+# ---------------------------------------------
+
+def load_model_weights(model, model_path, device, verbose=False):
+    """
+    Loads model weights from the specified path into the given model.
+    """
+    if os.path.isfile(model_path):
+        model.load_state_dict(torch.load(model_path, map_location=device))
+        if verbose: print(f"Loaded model weights from {model_path}")
+    else:
+        if verbose: print(f"No model weights found at {model_path}. Starting with random weights.")
+
+def save_model_weights(model, model_path, verbose=False):
+    """
+    Saves model weights from the given model to the specified path.
+    """
+    torch.save(model.state_dict(), model_path)
+    if verbose: print(f"Saved model weights to {model_path}")
+
+def evaluate_global_model(model, subset, data_loader, device, loss_function, crop_size=(192,224)):
+    model.eval()
+    
+    avg_error  = 0.0
+
+    with torch.no_grad():
+        for x_path, y_path in tqdm(subset, desc="Evaluating Universal Model"):
+            x_vol = data_loader.load_from_path(x_path, crop_size)
+            y_vol = data_loader.load_from_path(y_path, crop_size)
+
+            depth = x_vol.shape[2]
+            assert depth >= 192
+
+            for i in range(192):
+                x_slice = x_vol[:, :, i]
+                y_slice = y_vol[:, :, i]
+
+                x = data_loader.to_torch_img(x_slice, device)
+                y = data_loader.to_torch_img(y_slice, device)
+
+                recon, _, _  = model(x)
+                
+                avg_error  += loss_function(recon, y).item()
+                
+    total = len(subset) * 192
+    return avg_error / total
+
+def evaluate_slice_wise_model(
+        model_batch,
+        subset,
+        data_loader,
+        device,
+        loss_function,
+        crop_size=(192, 224),
+        max_slices: int = 192,
+    ):
+    """
+    Evaluate a slice-wise model ensemble.
+
+    Args:
+        models: list of per-slice models (index i is used for slice i).
+        subset: list of (x_path, y_path) pairs.
+        max_slices: cap on how many slices to evaluate per volume
+                    (typically 192 for comparability).
+    """
+    for m in model_batch:
+        m.eval()
+
+    avg_error = 0.0
+
+    with torch.no_grad():
+        for x_path, y_path in tqdm(subset, desc="Evaluating Slice-wise Model"):
+            x_vol = data_loader.load_from_path(x_path, crop_size)
+            y_vol = data_loader.load_from_path(y_path, crop_size)
+
+            depth = x_vol.shape[2]
+            # how many slices can we actually use?
+            num_slices = min(max_slices, depth, len(model_batch))
+
+            for i in range(num_slices):
+                x_slice = x_vol[:, :, i]
+                y_slice = y_vol[:, :, i]
+
+                x = data_loader.to_torch_img(x_slice, device)
+                y = data_loader.to_torch_img(y_slice, device)
+
+                recon, _, _ = model_batch[i](x)
+                avg_error += loss_function(recon, y).item()
+
+    total = len(subset) * num_slices
+    return avg_error / total
+
+
+# ---------------------------------------------
+# 3D Training Loop
+# ---------------------------------------------
+
 
 def fit_3D(
     model,
