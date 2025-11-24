@@ -91,24 +91,33 @@ class HuntDataLoader():
         all_pairs = [self.get_pair_path_from_id(candidate) for candidate in all_entries if os.path.exists(os.path.join(self.hunt_path, self.hunts[1], candidate))]
         return all_pairs
     
-    def split_training_test_paths(self, split=0.8, seed=random.randint(0, 10000)):
+    def split_dataset_paths(self, train_split=0.7, val_split=0.20, seed=random.randint(0, 10000)):
         """
         Function to split the dataset into training and testing paths
         """
+
+        # We first shuffle all entries (Seed for reproducibility)
         random.seed(seed)
         all_entries = os.listdir(os.path.join(self.hunt_path, self.hunts[0]))
         random.shuffle(all_entries)
-        split_index = int(len(all_entries) * split)
-        train_entries = all_entries[:split_index]
-        test_entries = all_entries[split_index:]
+
+        # Split into train, test and eval
+        train_split_index = int(len(all_entries) * train_split)
+        val_split_index = int(len(all_entries) * (train_split + val_split))
+        train_entries = all_entries[:train_split_index]
+        val_entries = all_entries[train_split_index:val_split_index]
+        test_entries = all_entries[val_split_index:] # Test split is (1 - train - val)
 
         train_paths = [self.get_pair_path_from_id(candidate)
                        for candidate in train_entries if os.path.exists(os.path.join(self.hunt_path, self.hunts[1], candidate))]
 
+        val_paths = [self.get_pair_path_from_id(candidate)
+                      for candidate in val_entries if os.path.exists(os.path.join(self.hunt_path, self.hunts[1], candidate))]
+
         test_paths = [self.get_pair_path_from_id(candidate)
                       for candidate in test_entries if os.path.exists(os.path.join(self.hunt_path, self.hunts[1], candidate))]
 
-        return train_paths, test_paths
+        return train_paths, val_paths, test_paths
     
     def load_from_path(self, path, crop_size=None):
         """
