@@ -91,7 +91,7 @@ class HuntDataLoader():
         all_pairs = [self.get_pair_path_from_id(candidate) for candidate in all_entries if os.path.exists(os.path.join(self.hunt_path, self.hunts[1], candidate))]
         return all_pairs
     
-    def split_dataset_paths(self, train_split=0.7, val_split=0.20, seed=random.randint(0, 10000)):
+    def split_dataset_paths(self, train_split=0.75, val_split=0.15, seed=random.randint(0, 10000)):
         """
         Function to split the dataset into training and testing paths
         """
