@@ -207,11 +207,12 @@ def fit_batch_on_slices(
                         device=device,
                         loss_function=logged_loss_function,
                         crop_size=crop_size,
+                        hide_bar=True,
                     )
 
                     if val_loss < best_val_loss:
                         best_val_loss = val_loss
-                        tqdm.write(f"[Slices {slice_indices[0]}–{slice_indices[-1]}] "
+                        print(f"[Slices {slice_indices[0]}–{slice_indices[-1]}] "
                               f"New best val loss at epoch {epoch}: {best_val_loss:.6f}")
 
                         # save *_best.pt for all the models in the batch
