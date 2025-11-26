@@ -9,6 +9,7 @@ from utils.hunt_data_loader import HuntDataLoader
 from utils.loss_functions import ssim_loss_3d
 from models.MiniEncoder3D import perceptual_loss_3d
 from tqdm import tqdm
+import copy
 
 def build_optimizer(model, lr=1e-4, wd=1e-4):
     return optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
@@ -294,6 +295,7 @@ def fit_3D(
     device: torch.device,
     dataLoader: HuntDataLoader,
     training_pairs: list[tuple[str, str]],
+    validation_pairs: list[tuple[str, str]],
     criterion=None,
     logged_loss_function=None,
     epochs=1,
@@ -316,8 +318,10 @@ def fit_3D(
     
     optimizer = optimizer or build_optimizer(model)
     saved_snapshots, loss_history = [], []
+    best_val_loss = np.inf # Starts at a very high value
+    best_model = copy.deepcopy(model)
 
-    for i in range(epochs):
+    for i in tqdm(range(epochs), desc="Training 3D Residual U-Net"):
         model.train()
 
         # pick a random pair and load the FULL volume as a stack of slices
@@ -390,7 +394,62 @@ def fit_3D(
             saved_snapshots.append({"iter": i, "x": x_np, "y": y_np, "recon": recon_np, "loss": loss.item()})
             print(f"Saved snapshot at iter {i} (mid-axial slice)")
 
-    return model, loss_history, saved_snapshots
+            # Check if we got new best
+            if len(validation_pairs) > 0:
+                model.eval()
+                val_losses = []
+
+                with torch.no_grad():
+                    for vx_path, vy_path in validation_pairs:
+                        vxs_list = dataLoader.get_all_slices_as_tensor(vx_path, crop_size=crop_size)
+                        vys_list = dataLoader.get_all_slices_as_tensor(vy_path, crop_size=crop_size)
+
+                        if trim_slices and trim_slices > 0:
+                            vxs_list = vxs_list[trim_slices:-trim_slices]
+                            vys_list = vys_list[trim_slices:-trim_slices]
+
+                        Dv = min(len(vxs_list), len(vys_list))
+                        vxs_list = vxs_list[:Dv]
+                        vys_list = vys_list[:Dv]
+
+                        vx = to_torch_vol(vxs_list, device)
+                        vy = to_torch_vol(vys_list, device)
+
+                        vout = model(vx)
+                        if isinstance(vout, (tuple, list)) and len(vout) >= 2:
+                            vy_hat, _ = vout[0], vout[1]
+                        else:
+                            vy_hat, _ = vout, None
+
+                        # validation loss uses same criterion fallback logic
+                        vloss = None
+                        if criterion is not None:
+                            try:
+                                vcrit_out = criterion(vy_hat, vy)
+                                if isinstance(vcrit_out, (tuple, list)):
+                                    vloss = vcrit_out[0]
+                                else:
+                                    vloss = vcrit_out
+                            except TypeError:
+                                pass
+
+                        if vloss is None:
+                            vloss = F.l1_loss(vy_hat, vy)
+
+                        val_losses.append(float(vloss.item()))
+
+                avg_loss = float(np.mean(val_losses)) if len(val_losses) > 0 else np.inf
+
+                # check for new best
+                if avg_loss < best_val_loss:
+                    print(
+                        f"Found new best loss on validation set: "
+                        f"{avg_loss:.6f} (prev {best_val_loss:.6f})"
+                    )
+                    best_val_loss = avg_loss
+                    best_model = copy.deepcopy(model)
+
+    return model, loss_history, saved_snapshots, best_model
 
 def to_torch_vol(vol_DHW, device):
     """
