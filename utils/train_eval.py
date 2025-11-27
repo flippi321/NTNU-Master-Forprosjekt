@@ -303,7 +303,7 @@ def fit_3D(
     print_every=-1,
     save_every=-1,
     trim_slices=0,
-    crop_size=(193, 224)
+    crop_size=(193, 229)
 ):
     """
     Train a 3D model on full volumes using HuntDataLoader.
@@ -495,6 +495,8 @@ def fit_3D_gan(
     device: torch.device,
     dataLoader: HuntDataLoader,
     training_pairs: list[tuple[str, str]],
+    validation_pairs: list[tuple[str, str]],
+    criterion=None,
     epochs=1,
     lr_G=1e-4,
     opt_G=None,
@@ -518,9 +520,11 @@ def fit_3D_gan(
     saved_snaps = []
     loss_history = []
 
+    best_val_loss = np.inf # Start with high value
+
     bce = nn.BCEWithLogitsLoss()  # standard GAN BCE loss
 
-    for it in range(epochs):
+    for it in tqdm(range(epochs), desc="Training MPGAN"):
         G.train()
         D.train()
 
@@ -611,4 +615,54 @@ def fit_3D_gan(
             })
             print(f"Saved snapshot at iter {it}")
 
-    return G, D, loss_history, saved_snaps
+            # Validation + best_G tracking
+            if validation_pairs is not None and len(validation_pairs) > 0:
+                G.eval()
+                val_losses = []
+
+                with torch.no_grad():
+                    for vx_path, vy_path in validation_pairs:
+                        vxs_list = dataLoader.get_all_slices_as_tensor(vx_path, crop_size=crop_size)
+                        vys_list = dataLoader.get_all_slices_as_tensor(vy_path, crop_size=crop_size)
+
+                        if trim_slices and trim_slices > 0:
+                            vxs_list = vxs_list[trim_slices:-trim_slices]
+                            vys_list = vys_list[trim_slices:-trim_slices]
+
+                        Dv = min(len(vxs_list), len(vys_list))
+                        vxs_list = vxs_list[:Dv]
+                        vys_list = vys_list[:Dv]
+
+                        vx = to_torch_vol(vxs_list, device)
+                        vy = to_torch_vol(vys_list, device)
+
+                        vy_fake = G(vx)
+
+                        # validation loss uses same criterion fallback logic as fit_3D
+                        vloss = None
+                        if criterion is not None:
+                            try:
+                                vcrit_out = criterion(vy_fake, vy)
+                                if isinstance(vcrit_out, (tuple, list)):
+                                    vloss = vcrit_out[0]
+                                else:
+                                    vloss = vcrit_out
+                            except TypeError:
+                                pass
+
+                        if vloss is None:
+                            vloss = F.l1_loss(vy_fake, vy)
+
+                        val_losses.append(float(vloss.item()))
+
+                avg_loss = float(np.mean(val_losses)) if len(val_losses) > 0 else np.inf
+
+                if avg_loss < best_val_loss:
+                    print(
+                        f"Found new best validation loss for G: "
+                        f"{avg_loss:.6f} (prev {best_val_loss:.6f})"
+                    )
+                    best_val_loss = avg_loss
+                    best_G = copy.deepcopy(G)
+
+    return G, D, loss_history, saved_snaps, best_G
