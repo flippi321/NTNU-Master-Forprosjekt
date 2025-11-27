@@ -274,8 +274,8 @@ def fit_2D(
 
         # We load a random client data-pair
         client = random.randint(0, len(training_pairs)-1)
-        xs = dataLoader.get_all_slices_as_tensor(training_pairs[client][0], crop_size=crop_size)  # (193, 193, 224)
-        ys = dataLoader.get_all_slices_as_tensor(training_pairs[client][1], crop_size=crop_size)  # (193, 193, 224)
+        xs = dataLoader.get_all_slices_as_tensor(training_pairs[client][0], crop_size=crop_size)  # (193, 193, 229)
+        ys = dataLoader.get_all_slices_as_tensor(training_pairs[client][1], crop_size=crop_size)  # (193, 193, 229)
 
         num_slices = min(len(xs), len(ys)) # They should be equal, but just in case
         loss_sum = 0.0
@@ -285,12 +285,12 @@ def fit_2D(
             x_slice = xs[i]
             y_slice = ys[i]
 
-            x = dataLoader.to_torch_img(x_slice, device)   # (1,1,193,224)
-            y = dataLoader.to_torch_img(y_slice, device)   # (1,1,193,224)
+            x = dataLoader.to_torch_img(x_slice, device)   # (1,1,193,229)
+            y = dataLoader.to_torch_img(y_slice, device)   # (1,1,193,229)
 
             optimizer.zero_grad()
             recon, mu_opt, logvar_opt = model(x)
-            
+
             # UNET returns None for mu and logvar
             if mu_opt is not None and logvar_opt is not None:
                 loss = training_loss_function(recon, y, mu_opt, logvar_opt)
