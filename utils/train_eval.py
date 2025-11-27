@@ -11,6 +11,10 @@ from models.MiniEncoder3D import perceptual_loss_3d
 from tqdm import tqdm
 import copy
 
+# ---------------------------------------------
+# General Helper Functions
+# ---------------------------------------------
+
 def build_optimizer(model, lr=1e-4, wd=1e-4):
     return optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
 
@@ -22,22 +26,10 @@ def cap_logged_loss(loss: torch.Tensor, loss_cap: float = 1e6) -> float:
     capped = torch.clamp(loss, max=loss_cap)
     return float(capped.item())
 
-def load_model_weights(model, model_path, device, verbose=False):
-    """
-    Loads model weights from the specified path into the given model.
-    """
-    if os.path.isfile(model_path):
-        model.load_state_dict(torch.load(model_path, map_location=device))
-        if verbose: print(f"Loaded model weights from {model_path}")
-    else:
-        if verbose: print(f"No model weights found at {model_path}. Starting with random weights.")
 
-def save_model_weights(model, model_path, verbose=False):
-    """
-    Saves model weights from the given model to the specified path.
-    """
-    torch.save(model.state_dict(), model_path)
-    if verbose: print(f"Saved model weights to {model_path}")
+# ---------------------------------------------
+# 2D Training Loop
+# ---------------------------------------------
 
 def fit_2d_models_per_slice(
         model_constructor,
@@ -45,6 +37,7 @@ def fit_2d_models_per_slice(
         device: torch.device,
         dataLoader,
         training_pairs: list[tuple[str, str]],
+        validation_pairs: list[tuple[str, str]],
         training_loss_function, 
         logged_loss_function,
         epochs: int = 1000,
@@ -60,6 +53,9 @@ def fit_2d_models_per_slice(
     Train per-slice models in batches of size `batch_size`.
     Each model in the batch trains on the SAME client image per step,
     but on its own fixed slice index.
+    
+    Evaluates each batch of slice models on `validation_pairs` using 
+    a batched slice-wise evaluator.
     """
     loss_histories = []
     snapshots = []
@@ -79,8 +75,10 @@ def fit_2d_models_per_slice(
             optimizer_batch=optimizer_batch,
             device=device,
             slice_indices=slice_indices,
+            start_slice=start,
             dataLoader=dataLoader,
             training_pairs=training_pairs,
+            validation_pairs=validation_pairs,
             training_loss_function=training_loss_function,
             logged_loss_function=logged_loss_function,
             epochs=epochs,
@@ -106,13 +104,16 @@ def fit_2d_models_per_slice(
     snapshots = sorted(snapshots, key=lambda x: (x.get("iter", 0), x.get("slice_idx", -1)))
     return loss_curve, snapshots
 
+
 def fit_batch_on_slices(
         model_batch: list[nn.Module],
         optimizer_batch: list[optim.Optimizer],
         device: torch.device,
         slice_indices: list[int],
+        start_slice: int,
         dataLoader,                       
         training_pairs: list[tuple[str, str]],
+        validation_pairs: list[tuple[str, str]],
         training_loss_function,
         logged_loss_function,
         epochs: int,  
@@ -123,7 +124,11 @@ def fit_batch_on_slices(
         model_names: list[str],
     ):
     """
-    Trains a list of per-slice models. Model i is trained on slice i of each client volume.
+    Trains a list of per-slice models. Model for global slice index i
+    is trained on slice i of each client volume.
+
+    Also evaluates this batch of slice models on `validation_pairs`
+    using `evaluate_slice_model_batch`, and saves best-per-batch weights.
     """
     assert len(model_batch) == len(optimizer_batch) == len(slice_indices), "Batch lists must align"
     if model_names is None:
@@ -139,18 +144,19 @@ def fit_batch_on_slices(
     snapshots    = []
 
     num_clients = len(training_pairs)
+    best_val_loss = np.inf
 
-    # compact per-batch epoch progress bar (keeps outer bar intact)
-    for epoch in tqdm(range(epochs), desc=f"Epochs {slice_indices[0]}–{slice_indices[-1]}", leave=False):
-        # pick one client; all models see the same image stacks this step
+    for epoch in range(epochs):
+        # Pick a random client (reused for all slice-models in this epoch)
         client = random.randint(0, num_clients - 1)
         xs = dataLoader.get_all_slices_as_tensor(training_pairs[client][0], crop_size=crop_size)
         ys = dataLoader.get_all_slices_as_tensor(training_pairs[client][1], crop_size=crop_size)
 
+        num_slices = min(len(xs), len(ys))
         epoch_losses = []
 
         for i, model, optimizer in zip(slice_indices, model_batch, optimizer_batch):
-            if i >= min(len(xs), len(ys)):
+            if i >= num_slices:
                 continue
 
             model.train()
@@ -172,7 +178,7 @@ def fit_batch_on_slices(
             epoch_losses.append(cap_logged_loss(logged_loss_function(recon, y)))
 
             # snapshot only if this model's slice is the one of interest
-            if (save_every > 0) and (epoch % save_every == 0 or epoch == epochs - 1) and (i == idx_to_show):
+            if (save_every > 0) and (epoch % save_every == 0 or epoch == epochs - 1):
                 with torch.no_grad():
                     x_show = dataLoader.to_torch_img(xs[idx_to_show], device)
                     y_show = dataLoader.to_torch_img(ys[idx_to_show], device)
@@ -182,18 +188,46 @@ def fit_batch_on_slices(
                     y_np     = dataLoader.to_numpy_img(y_show)
                     recon_np = dataLoader.to_numpy_img(recon_show)
 
-                snapshots.append({
-                    "iter": epoch,
-                    "slice_idx": i,
-                    "x": x_np,
-                    "y": y_np,
-                    "recon": recon_np
-                })
+                if i == idx_to_show:
+                    snapshots.append({
+                        "iter": epoch,
+                        "slice_idx": i,
+                        "x": x_np,
+                        "y": y_np,
+                        "recon": recon_np
+                    })
+
+                # --- Evaluate this batch on validation set ---
+                # slice_indices[-1] because we only want to do this once per batch
+                if model_dir and model_names and i == slice_indices[-1]:
+                    val_loss = evaluate_slice_model_batch(
+                        model_batch=model_batch,
+                        subset=validation_pairs,
+                        start_slice=start_slice,
+                        data_loader=dataLoader,
+                        device=device,
+                        loss_function=logged_loss_function,
+                        crop_size=crop_size,
+                        hide_bar=True,
+                    )
+
+                    if val_loss < best_val_loss:
+                        best_val_loss = val_loss
+                        print(f"[Slices {slice_indices[0]}–{slice_indices[-1]}] "
+                              f"New best val loss at epoch {epoch}: {best_val_loss:.6f}")
+
+                        # save *_best.pt for all the models in the batch
+                        if model_dir:
+                            os.makedirs(model_dir, exist_ok=True)
+                            for m, name in zip(model_batch, model_names):
+                                if name:
+                                    best_path = os.path.join(model_dir, name.replace(".pt", "_best.pt"))
+                                    save_model_weights(m, best_path)
 
         if epoch_losses:
             loss_history.append(sum(epoch_losses) / len(epoch_losses))
 
-    # save weights individually for all models in the batch
+    # save final weights individually for all models in the batch
     if model_dir:
         os.makedirs(model_dir, exist_ok=True)
         for m, name in zip(model_batch, model_names):
@@ -209,6 +243,7 @@ def fit_2D(
         device: torch.device,
         dataLoader: HuntDataLoader,
         training_pairs: list[tuple[str, str]],
+        validation_pairs: list[tuple[str, str]],
         training_loss_function, 
         logged_loss_function,
         epochs: int, 
@@ -225,13 +260,14 @@ def fit_2D(
     optimizer = optimizer or build_optimizer(model)
     saved_snapshots = []
     loss_history = []
+    best_val_loss = np.inf
     
     # Load existing weights if available
     if model_dir and model_name:
         model_path = os.path.join(model_dir, model_name + ".pt")
         load_model_weights(model, model_path, device, verbose=True)
 
-    for epoch in tqdm(range(epochs), desc="Training 2D VAE Model on Epochs"):
+    for epoch in tqdm(range(epochs), desc="Training 2D Model"):
         model.train()
 
         # We load a random client data-pair
@@ -282,6 +318,23 @@ def fit_2D(
 
             saved_snapshots.append({"iter": epoch, "x": x_np, "y": y_np, "recon": recon_np})
 
+            # --- Evaluate on validation set ---
+
+            val_loss = evaluate_global_model(model=model,
+                                             subset=validation_pairs,
+                                             data_loader=dataLoader,
+                                             device=device,
+                                             loss_function=logged_loss_function,
+                                             crop_size=crop_size)
+            
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                print(f"New best model at epoch {epoch} with val loss {best_val_loss:.6f}")
+                
+                if model_dir and model_name:
+                    os.makedirs(model_dir, exist_ok=True)
+                    save_model_weights(model, os.path.join(model_dir, model_name + "_best.pt"))
+
     # Save final model weights
     if model_dir and model_name:
         os.makedirs(model_dir, exist_ok=True)
@@ -289,6 +342,122 @@ def fit_2D(
         save_model_weights(model, model_path, verbose=True)
 
     return model, loss_history, saved_snapshots
+
+# ---------------------------------------------
+# 2D Helper Functions
+# ---------------------------------------------
+
+def load_model_weights(model, model_path, device, verbose=False):
+    """
+    Loads model weights from the specified path into the given model.
+    """
+    if os.path.isfile(model_path):
+        model.load_state_dict(torch.load(model_path, map_location=device))
+        if verbose: print(f"Loaded model weights from {model_path}")
+    else:
+        if verbose: print(f"No model weights found at {model_path}. Starting with random weights.")
+
+def save_model_weights(model, model_path, verbose=False):
+    """
+    Saves model weights from the given model to the specified path.
+    """
+    torch.save(model.state_dict(), model_path)
+    if verbose: print(f"Saved model weights to {model_path}")
+
+def evaluate_global_model(
+        model, 
+        subset, 
+        data_loader, 
+        device, 
+        loss_function, 
+        crop_size=(192,224), 
+        hide_bar=False
+    ):
+    model.eval()
+    
+    avg_error  = 0.0
+
+    with torch.no_grad():
+        for x_path, y_path in tqdm(subset, desc="Evaluating Universal Model", leave=True, disable=hide_bar):
+            x_vol = data_loader.load_from_path(x_path, crop_size)
+            y_vol = data_loader.load_from_path(y_path, crop_size)
+
+            depth = x_vol.shape[2]
+            assert depth >= 192
+
+            for i in range(192):
+                x_slice = x_vol[:, :, i]
+                y_slice = y_vol[:, :, i]
+
+                x = data_loader.to_torch_img(x_slice, device)
+                y = data_loader.to_torch_img(y_slice, device)
+
+                recon, _, _  = model(x)
+                
+                avg_error  += loss_function(recon, y).item()
+                
+    total = len(subset) * 192
+    return avg_error / total
+
+def evaluate_slice_model_batch(
+        model_batch,
+        subset,
+        start_slice: int,
+        data_loader,
+        device,
+        loss_function,
+        crop_size=(192, 224),
+        hide_bar=False,
+    ):
+    """
+    Evaluate a batch of slice-wise models.
+
+    Args:
+        model_batch: list of per-slice models. model_batch[i] is responsible for slice (start_slice + i).
+        subset:      list of (x_path, y_path) pairs.
+        start_slice: global slice index of model_batch[0]. The rest follow sequentially.
+    """
+    for m in model_batch:
+        m.eval()
+
+    total_error = 0.0
+    n_evals = 0
+
+    with torch.no_grad():
+        desc = f"Evaluating slices {start_slice}–{start_slice + len(model_batch) - 1}"
+        for x_path, y_path in tqdm(subset, desc=desc, leave=True, disable=hide_bar):
+            x_vol = data_loader.load_from_path(x_path, crop_size)
+            y_vol = data_loader.load_from_path(y_path, crop_size)
+
+            depth = x_vol.shape[2]
+
+            # iterate over models in this batch
+            for local_idx, model in enumerate(model_batch):
+                idx = start_slice + local_idx
+
+                # safety: don't go beyond volume depth
+                if idx >= depth:
+                    continue
+
+                x_slice = x_vol[:, :, idx]
+                y_slice = y_vol[:, :, idx]
+
+                x = data_loader.to_torch_img(x_slice, device)
+                y = data_loader.to_torch_img(y_slice, device)
+
+                recon, _, _ = model(x)
+                total_error += loss_function(recon, y).item()
+                n_evals += 1
+
+    # Avoid division by zero in pathological cases
+    return total_error / max(n_evals, 1)
+
+
+
+# ---------------------------------------------
+# 3D Training Loop
+# ---------------------------------------------
+
 
 def fit_3D(
     model,
