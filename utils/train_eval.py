@@ -466,7 +466,6 @@ def fit_3D(
     training_pairs: list[tuple[str, str]],
     validation_pairs: list[tuple[str, str]],
     criterion=None,
-    logged_loss_function=None,
     epochs=1,
     optimizer=None,
     print_every=-1,
@@ -489,6 +488,7 @@ def fit_3D(
     saved_snapshots, loss_history = [], []
     best_val_loss = np.inf # Starts at a very high value
     best_model = copy.deepcopy(model)
+    loss_history = []
 
     for i in tqdm(range(epochs), desc="Training 3D Residual U-Net"):
         model.train()
@@ -545,10 +545,8 @@ def fit_3D(
         loss.backward()
         optimizer.step()
 
-        # --- log ---
-        if logged_loss_function is not None:
-            logged_loss = cap_logged_loss(logged_loss_function(y_hat, y))
-            loss_history.append(logged_loss)
+        # --- Store loss ---
+        loss_history.append(cap_logged_loss(loss))
 
         if (print_every > 0) and (i % print_every == 0):
             print(f"[Iter {i}] total: {loss.item():.6f}")
@@ -618,7 +616,7 @@ def fit_3D(
                     best_val_loss = avg_loss
                     best_model = copy.deepcopy(model)
 
-    return model, loss_history, saved_snapshots, best_model
+    return model, loss_history, saved_snapshots, best_model, loss_history
 
 def to_torch_vol(vol_DHW, device):
     """
