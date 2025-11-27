@@ -23,7 +23,7 @@ def ssim_loss(recon: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 
 def l1_loss(recon: torch.Tensor, target: torch.Tensor, l1_weight=0.5, ssim_weight=0.5) -> torch.Tensor:
     # L1 loss
-    return nn.functional.l1_loss(recon, target, reduction='mean')
+    return torch.mean(torch.abs(recon - target))
 
 def ssim_L1_2d_loss(recon: torch.Tensor, target: torch.Tensor, l1_weight=0.5, ssim_weight=0.5) -> torch.Tensor:
     # Return losses with weights
