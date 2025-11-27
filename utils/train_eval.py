@@ -115,12 +115,13 @@ def fit_batch_on_slices(
         validation_pairs: list[tuple[str, str]],
         training_loss_function,
         logged_loss_function,
-        epochs: int,  
-        save_every: int,
-        crop_size: tuple,
-        idx_to_show: int,  # Approx. middle slice
-        model_dir: str,    # Assume load/save if defined
-        model_names: list[str],
+        epochs: int             = 1000,  
+        save_every: int         = 100,
+        eval_every: int         = 100,
+        crop_size: tuple        = (193, 229),
+        idx_to_show: int        = 93,  # Approx. middle slice
+        model_dir: str          = "div",    # Assume load/save if defined
+        model_names: list[str]  = None,
     ):
     """
     Trains a list of per-slice models. Model for global slice index i
@@ -197,6 +198,7 @@ def fit_batch_on_slices(
                     })
 
                 # --- Evaluate this batch on validation set ---
+            if eval_every > 0 and (epoch % eval_every == 0 or epoch == epochs - 1):
                 # slice_indices[-1] because we only want to do this once per batch
                 if model_dir and model_names and i == slice_indices[-1]:
                     val_loss = evaluate_slice_model_batch(
@@ -246,8 +248,9 @@ def fit_2D(
         training_loss_function, 
         logged_loss_function,
         epochs: int, 
-        save_every: int = -1,
-        crop_size: tuple = (192, 224),
+        save_every: int = 100,
+        eval_every: int = 100,
+        crop_size: tuple = (193, 229),
         idx_to_show: int = 93,
         model_dir: str = "",
         model_name: str = ""
